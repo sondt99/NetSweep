@@ -44,7 +44,6 @@ Menu:
 === Select an option ===
 1. Scan Local Network - Discover all active hosts (local)
 2. Host Scanner - Scan specific hosts (local & remote)
-3. Camera Scanner - Scan specific cameras (local & remote)
 0. Exit
 ```
 
@@ -127,12 +126,6 @@ results/192.168.1.1/192.168.1.1_2025-04-12_21-25-30.json
 | --timeout            | Connection timeout (default: 1s)                        |
 
 ---
-### Camera Scanner
-```bash
-python camera_scanner.py
-```
-
-Details: in [/camera_scanner.md](./camera_scanner.md)
 
 ## Folder Structure
 ```
@@ -140,7 +133,6 @@ Details: in [/camera_scanner.md](./camera_scanner.md)
 ├── main.py                 → Entry script (menu)
 ├── lan_scanner.py          → LAN scanning logic
 ├── host_scanner.py         → Targeted host scanning logic
-├── camera_scanner.py       → Camera scanning logic
 └── README.md
 ```
 
