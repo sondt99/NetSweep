@@ -1,0 +1,68 @@
+2025-11-27 04:30:33 - NetSweep - INFO - NetSweep - Professional Network Scanner
+2025-11-27 04:30:33 - NetSweep - INFO - Configuration loaded successfully
+2025-11-27 04:30:36 - NetSweep - INFO - User selected Configuration
+2025-11-27 04:30:50 - NetSweep - ERROR - Unexpected AttributeError: 'NetSweepConfig' object has no attribute 'reset_to_defaults' (Context: Configuration menu)
+2025-11-27 04:30:51 - NetSweep - INFO - User selected LAN Scanner
+2025-11-27 04:30:55 - NetSweep - INFO - Executing lan scanner: /usr/bin/python3 lan_scanner.py -t 50 -T 0.5 -o json -d scan_results
+2025-11-27 04:30:55 - NetSweep - ERROR - Unexpected AttributeError: 'ErrorHandler' object has no attribute 'log_error' (Context: __main__.execute_scanner)
+2025-11-27 04:30:55 - NetSweep - ERROR - Unexpected AttributeError: 'ErrorHandler' object has no attribute 'log_error' (Context: LAN Scanner execution)
+2025-11-27 04:30:58 - NetSweep - INFO - User interrupted with Ctrl+C
+2025-11-27 04:31:39 - NetSweep - INFO - NetSweep - Professional Network Scanner
+2025-11-27 04:31:39 - NetSweep - INFO - Configuration loaded successfully
+2025-11-27 04:31:40 - NetSweep - INFO - User selected LAN Scanner
+2025-11-27 04:31:42 - NetSweep - INFO - Executing lan scanner: /usr/bin/python3 lan_scanner.py -t 50 -T 0.5 -o json -d scan_results
+2025-11-27 04:31:43 - NetSweep - ERROR - Unexpected AttributeError: 'ErrorHandler' object has no attribute 'log_error' (Context: __main__.execute_scanner)
+2025-11-27 04:31:43 - NetSweep - ERROR - Unexpected AttributeError: 'ErrorHandler' object has no attribute 'log_error' (Context: LAN Scanner execution)
+2025-11-27 04:31:52 - NetSweep - INFO - User interrupted with Ctrl+C
+2025-11-27 04:32:07 - NetSweep - INFO - NetSweep - Professional Network Scanner
+2025-11-27 04:32:07 - NetSweep - INFO - Configuration loaded successfully
+2025-11-27 04:32:09 - NetSweep - INFO - User selected LAN Scanner
+2025-11-27 04:32:10 - NetSweep - INFO - Executing lan scanner: /usr/bin/python3 lan_scanner.py -t 50 -T 0.5 -o json -d scan_results
+2025-11-27 04:32:10 - NetSweep - ERROR - Unexpected AttributeError: 'ErrorHandler' object has no attribute 'log_error' (Context: __main__.execute_scanner)
+2025-11-27 04:32:10 - NetSweep - ERROR - Unexpected AttributeError: 'ErrorHandler' object has no attribute 'log_error' (Context: LAN Scanner execution)
+2025-11-27 04:32:53 - NetSweep - INFO - User selected LAN Scanner
+2025-11-27 04:32:55 - NetSweep - INFO - Executing lan scanner: /usr/bin/python3 lan_scanner.py -t 50 -T 0.5 -o json -d scan_results
+2025-11-27 04:32:55 - NetSweep - ERROR - Unexpected AttributeError: 'ErrorHandler' object has no attribute 'log_error' (Context: __main__.execute_scanner)
+2025-11-27 04:32:55 - NetSweep - ERROR - Unexpected AttributeError: 'ErrorHandler' object has no attribute 'log_error' (Context: LAN Scanner execution)
+2025-11-27 04:34:25 - NetSweep - INFO - User selected LAN Scanner
+2025-11-27 04:34:25 - NetSweep - INFO - User interrupted with Ctrl+C
+2025-11-27 04:34:26 - NetSweep - INFO - NetSweep - Professional Network Scanner
+2025-11-27 04:34:26 - NetSweep - INFO - Configuration loaded successfully
+2025-11-27 04:34:27 - NetSweep - INFO - User selected LAN Scanner
+2025-11-27 04:34:28 - NetSweep - INFO - Executing lan scanner: /usr/bin/python3 lan_scanner.py -t 50 -T 0.5 -o json -d scan_results
+2025-11-27 04:34:34 - NetSweep - INFO - User interrupted with Ctrl+C
+2025-11-27 04:34:45 - NetSweep - INFO - NetSweep - Professional Network Scanner
+2025-11-27 04:34:45 - NetSweep - INFO - Configuration loaded successfully
+2025-11-27 04:34:46 - NetSweep - INFO - User selected LAN Scanner
+2025-11-27 04:34:47 - NetSweep - INFO - Executing lan scanner: /usr/bin/python3 lan_scanner.py -t 50 -T 0.5 -o json -d scan_results
+2025-11-27 04:34:53 - NetSweep - INFO - User interrupted with Ctrl+C
+2025-11-27 04:34:54 - NetSweep - INFO - NetSweep - Professional Network Scanner
+2025-11-27 04:34:54 - NetSweep - INFO - Configuration loaded successfully
+2025-11-27 04:34:55 - NetSweep - INFO - User selected LAN Scanner
+2025-11-27 04:34:56 - NetSweep - INFO - Executing lan scanner: /usr/bin/python3 lan_scanner.py -t 50 -T 0.5 -o json -d scan_results
+2025-11-27 04:35:10 - NetSweep - INFO - User interrupted with Ctrl+C
+2025-11-27 04:36:49 - NetSweep - INFO - NetSweep - Professional Network Scanner
+2025-11-27 04:36:49 - NetSweep - INFO - Configuration loaded successfully
+2025-11-27 04:36:51 - NetSweep - INFO - User selected Host Scanner
+2025-11-27 04:37:47 - NetSweep - INFO - Executing host scanner: /usr/bin/python3 host_scanner.py -t 14.248.82.248 -p 1-1000
+2025-11-27 04:37:57 - NetSweep - INFO - Host scanner completed successfully
+2025-11-27 04:38:15 - NetSweep - INFO - User selected Host Scanner
+2025-11-27 04:38:18 - NetSweep - INFO - Executing host scanner: /usr/bin/python3 host_scanner.py -t 14.248.82.248 -p 10000
+2025-11-27 04:38:19 - NetSweep - INFO - Host scanner completed successfully
+2025-11-27 04:38:23 - NetSweep - INFO - User interrupted with Ctrl+C
+2025-11-27 04:38:24 - NetSweep - INFO - NetSweep - Professional Network Scanner
+2025-11-27 04:38:24 - NetSweep - INFO - Configuration loaded successfully
+2025-11-27 04:38:24 - NetSweep - INFO - User selected Host Scanner
+2025-11-27 04:38:29 - NetSweep - INFO - Executing host scanner: /usr/bin/python3 host_scanner.py -t 14.248.82.248 -p 10000
+2025-11-27 04:38:31 - NetSweep - INFO - Host scanner completed successfully
+2025-11-27 04:38:41 - NetSweep - INFO - User selected Host Scanner
+2025-11-27 04:38:44 - NetSweep - INFO - Executing host scanner: /usr/bin/python3 host_scanner.py -t 14.248.82.248 -p 1-1000
+2025-11-27 04:38:54 - NetSweep - INFO - Host scanner completed successfully
+2025-11-27 04:39:06 - NetSweep - INFO - User selected Host Scanner
+2025-11-27 04:39:10 - NetSweep - INFO - Executing host scanner: /usr/bin/python3 host_scanner.py -t 14.248.82.248 -p 9999
+2025-11-27 04:39:10 - NetSweep - INFO - Host scanner completed successfully
+2025-11-27 04:39:15 - NetSweep - INFO - User interrupted with Ctrl+C
+2025-11-27 04:39:15 - NetSweep - INFO - NetSweep - Professional Network Scanner
+2025-11-27 04:39:15 - NetSweep - INFO - Configuration loaded successfully
+2025-11-27 04:39:17 - NetSweep - INFO - User selected Host Scanner
+2025-11-27 04:39:22 - NetSweep - INFO - Executing host scanner: /usr/bin/python3 host_scanner.py -t 14.248.82.248 -p 1-10000

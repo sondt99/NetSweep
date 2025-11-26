@@ -1,14 +1,32 @@
+# NetSweep - Professional Network Scanner Dependencies
+# Core networking and system libraries
 ipaddress
 netifaces
-requests
-tabulate
-tqdm
 getmac
 ping3
-scapy
-argparse
-datetime
-scapy
-requests
-cryptography
-pyOpenSSL
+
+# Advanced packet manipulation
+scapy>=2.4.5
+
+# HTTP requests and web interactions
+requests>=2.25.1
+
+# Data formatting and display
+tabulate>=0.9.0
+
+# Progress bars and user experience
+tqdm>=4.62.0
+
+# Cryptography and SSL/TLS analysis
+cryptography>=3.4.8
+pyOpenSSL>=20.0.1
+
+# Standard library modules (for reference)
+# argparse - Included in Python 3.7+
+# datetime - Included in Python 3.7+
+# concurrent.futures - Included in Python 3.7+
+# socket - Included in Python 3.7+
+# threading - Included in Python 3.7+
+# json - Included in Python 3.7+
+# os - Included in Python 3.7+
+# sys - Included in Python 3.7+

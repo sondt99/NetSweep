@@ -10,7 +10,19 @@ from tqdm import tqdm
 
 from utils.system_utils import get_local_ip, get_local_mac
 from scanner.device_info import DeviceInfo
-from scanner.port_scanner import PortScanner
+# Import the scan_ports function directly from host_scanner
+# This provides the interface expected by NetworkScanner
+import importlib.util
+spec = importlib.util.spec_from_file_location("host_scanner", os.path.join(os.path.dirname(__file__), "..", "host_scanner.py"))
+host_scanner_module = importlib.util.module_from_spec(spec)
+
+try:
+    spec.loader.exec_module(host_scanner_module)
+    scan_ports = host_scanner_module.scan_ports
+except:
+    # Fallback if host_scanner is not available
+    def scan_ports(ip, port_range, timeout, threads, verbose=False):
+        return []
 
 class NetworkScanner:
     def __init__(self, network, num_threads=50, scan_timeout=0.5, output_dir="scan_results"):
@@ -23,7 +35,7 @@ class NetworkScanner:
         self.results = []
         self.local_ip = get_local_ip()
         self.device_info = DeviceInfo()
-        self.port_scanner = PortScanner(timeout=self.timeout)
+        # Remove port_scanner as we'll use scan_ports function directly
         self.output_dir = output_dir
         
         # Create output directory if it doesn't exist
@@ -72,7 +84,7 @@ class NetworkScanner:
                 vendor = self.device_info.get_vendor(mac) if mac else "N/A"
                 
                 # Scan for open ports
-                open_ports = self.port_scanner.scan_ports(ip)
+                open_ports = scan_ports(ip, "1-1000", self.timeout, 10)
                 
                 # Determine device type based on open ports
                 device_type = self._determine_device_type(open_ports)
