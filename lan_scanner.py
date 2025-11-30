@@ -10,6 +10,7 @@ def main():
     parser.add_argument("-o", "--output", choices=["json", "csv", "txt"], help="Export format (json, csv, txt)")
     parser.add_argument("-d", "--output-dir", default="scan_results", help="Output directory for scan results")
     parser.add_argument("-T", "--timeout", type=float, default=0.5, help="Scan timeout in seconds (default: 0.5)")
+    parser.add_argument("--ip-timeout", type=float, default=2.0, help="Maximum time to spend on a single IP in seconds (default: 2.0)")
     
     args = parser.parse_args()
     
@@ -44,9 +45,10 @@ def main():
             os.makedirs(args.output_dir)
         
         scanner = NetworkScanner(
-            network=network, 
+            network=network,
             num_threads=args.threads,
             scan_timeout=args.timeout,
+            ip_timeout=args.ip_timeout,
             output_dir=args.output_dir
         )
         

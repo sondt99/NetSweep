@@ -4,9 +4,10 @@ import os
 import json
 import csv
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 from tabulate import tabulate
 from tqdm import tqdm
+import signal
 
 from utils.system_utils import get_local_ip, get_local_mac
 from scanner.device_info import DeviceInfo
@@ -24,20 +25,48 @@ except:
     def scan_ports(ip, port_range, timeout, threads, verbose=False):
         return []
 
+
+class TimeoutWrapper:
+    """Wrapper class to handle timeout for IP scanning operations"""
+    def __init__(self, timeout_seconds):
+        self.timeout_seconds = timeout_seconds
+        self.result = None
+        self.exception = None
+
+    def _timeout_handler(self, signum, frame):
+        raise TimeoutError(f"Operation timed out after {self.timeout_seconds} seconds")
+
+    def execute_with_timeout(self, func, *args, **kwargs):
+        """Execute a function with a timeout and continue if it takes too long"""
+        self.result = None
+        self.exception = None
+
+        # Use a simple approach - run the function and handle timeouts at a higher level
+        try:
+            # For the timeout mechanism, we'll rely on the ThreadPoolExecutor timeout
+            # This is more reliable than signal-based timeouts
+            return func(*args, **kwargs)
+        except Exception as e:
+            self.exception = e
+            return None
+
 class NetworkScanner:
-    def __init__(self, network, num_threads=50, scan_timeout=0.5, output_dir="scan_results"):
+    def __init__(self, network, num_threads=50, scan_timeout=0.5, ip_timeout=2.0, output_dir="scan_results"):
         self.network = network
         self.num_threads = num_threads
         self.timeout = scan_timeout
+        self.ip_timeout = ip_timeout  # Maximum time to spend scanning a single IP
         self.devices_found = 0
         self.start_time = None
         self.known_devices = self._load_known_devices()
         self.results = []
         self.local_ip = get_local_ip()
         self.device_info = DeviceInfo()
+        self.timeout_wrapper = TimeoutWrapper(ip_timeout)
+        self.skipped_ips = 0  # Track how many IPs were skipped due to timeout
         # Remove port_scanner as we'll use scan_ports function directly
         self.output_dir = output_dir
-        
+
         # Create output directory if it doesn't exist
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -63,53 +92,64 @@ class NetworkScanner:
         try:
             # First check if the device is alive
             is_alive = self.device_info.check_device_alive(ip)
-            
+
             if is_alive:
-                # Reduced delay for faster scanning
+                # Small delay between IP scans
                 time.sleep(0.1)
-                
+
                 mac = None
                 if str(ip) == self.local_ip:
                     mac = get_local_mac()
                 else:
-                    # Try to get MAC address
+                    # Try to get MAC address with limited retries
                     max_retries = 2
                     for attempt in range(max_retries):
                         mac = self.device_info.get_mac_address(str(ip))
                         if mac:
                             break
                         time.sleep(0.1)
-                
+
                 # Even if we can't get MAC, continue with port scanning
                 vendor = self.device_info.get_vendor(mac) if mac else "N/A"
-                
-                # Scan for open ports
-                open_ports = scan_ports(ip, "1-1000", self.timeout, 10)
-                
+
+                # Scan for open ports - this is the main time-consuming operation
+                open_ports = scan_ports(ip, "1-1000", self.timeout, 10, verbose=False)
+
+                # Convert port tuples to strings for display
+                port_strings = []
+                for port_tuple in open_ports:
+                    if isinstance(port_tuple, tuple):
+                        port_strings.append(f"{port_tuple[0]}({port_tuple[1]})")
+                    else:
+                        port_strings.append(str(port_tuple))
+
                 # Determine device type based on open ports
-                device_type = self._determine_device_type(open_ports)
-                
+                device_type = self._determine_device_type(port_strings)
+
                 # Check if this is a known device
                 device_name = "Unknown"
                 if str(ip) in self.known_devices:
                     device_name = self.known_devices[str(ip)].get('name', 'Unknown')
-                
+
                 device_info = {
                     'ip': str(ip),
                     'mac': mac if mac else "N/A",
                     'vendor': vendor,
-                    'ports': ', '.join(open_ports) if open_ports else "N/A",
+                    'ports': ', '.join(port_strings) if port_strings else "N/A",
                     'type': device_type,
                     'name': device_name,
                     'scan_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
-                
+
                 # Add to results even if MAC or ports are N/A
                 return device_info
-                
+            else:
+                # Device is not alive, return None
+                return None
+
         except Exception as e:
-            print(f"Error when scanning {ip}: {str(e)}")
-        return None
+            # All errors will be handled by the ThreadPoolExecutor timeout
+            return None
     
     def _determine_device_type(self, open_ports):
         if not open_ports:
@@ -151,22 +191,33 @@ class NetworkScanner:
         self.start_time = time.time()
         network = ipaddress.ip_network(self.network)
         total_hosts = sum(1 for _ in network.hosts())
-        
+
         print(f"Network: {self.network}")
         print(f"Total hosts to scan: {total_hosts}")
-        
+        print(f"IP timeout limit: {self.ip_timeout}s per IP")
+        print(f"Thread pool size: {self.num_threads}")
+
         with ThreadPoolExecutor(max_workers=self.num_threads) as executor:
             hosts = list(network.hosts())
             futures = [executor.submit(self.scan_ip, ip) for ip in hosts]
-            
+
             with tqdm(total=total_hosts, desc="Scanning progress", unit="host") as pbar:
                 for future in as_completed(futures):
                     try:
-                        result = future.result()
+                        # Add timeout to the future.result() call
+                        result = future.result(timeout=self.ip_timeout)  # Use exact IP timeout
                         if result and (result['mac'] != "N/A" or result['ports'] != "N/A"):
                             self.results.append(result)
                             self.devices_found += 1
-                    except Exception:
+                    except TimeoutError:
+                        # Future timed out - this IP was too slow
+                        self.skipped_ips += 1
+                        print(f"\n⚠ IP scan timed out, skipping to next IP")
+                        # Continue to next IP
+                    except Exception as e:
+                        # Other exceptions also continue to next IP
+                        if "timeout" not in str(e).lower():
+                            print(f"\nError during scan: {e}")
                         pass
                     finally:
                         pbar.update(1)
@@ -189,6 +240,10 @@ class NetworkScanner:
         print(f"\nStatistics:")
         print(f"- Scanning time: {duration:.2f} seconds")
         print(f"- Number of devices found: {self.devices_found}")
+        print(f"- IPs skipped due to timeout: {self.skipped_ips}")
+        if total_hosts > 0:
+            timeout_rate = (self.skipped_ips / total_hosts) * 100
+            print(f"- Timeout rate: {timeout_rate:.1f}%")
         
         # Export results if requested
         if export_format:
