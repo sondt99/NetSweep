@@ -19,8 +19,10 @@ from config import get_config
 DISCOVERY_PORT_SERVICES = {
     21: 'ftp', 22: 'ssh', 23: 'telnet', 25: 'smtp', 53: 'dns',
     80: 'http', 110: 'pop3', 135: 'msrpc', 139: 'netbios', 143: 'imap',
-    443: 'https', 993: 'imaps', 995: 'pop3s', 1723: 'pptp', 3306: 'mysql',
-    3389: 'rdp', 5432: 'postgresql', 5900: 'vnc', 8080: 'http-alt', 8443: 'https-alt',
+    443: 'https', 465: 'smtps', 554: 'rtsp', 587: 'smtp-sub', 993: 'imaps',
+    995: 'pop3s', 1723: 'pptp', 1883: 'mqtt', 3306: 'mysql', 3389: 'rdp',
+    5432: 'postgresql', 5900: 'vnc', 8000: 'http-alt', 8080: 'http-alt',
+    8443: 'https-alt', 8883: 'mqtt-ssl',
 }
 
 
@@ -133,13 +135,18 @@ class NetworkScanner:
             return "Unknown"
             
         ports_str = ' '.join(open_ports)
-        
-        # Simple heuristics to determine device type
+
+        # Simple heuristics to determine device type.
+        # RTSP/camera signature checked first: it's far more specific than "has 80+443",
+        # which most devices with a web admin UI (including cameras themselves) also have.
+        if '554(' in ports_str or '8000(' in ports_str:
+            return "Camera/Media Device"
+
         if '80(' in ports_str and ('443(' in ports_str or '8443(' in ports_str):
             if '8080(' in ports_str or '8888(' in ports_str:
                 return "Web Server"
             return "Web Device"
-            
+
         if '22(' in ports_str and '3389(' not in ports_str:
             return "Linux/Unix Device"
             
@@ -154,10 +161,7 @@ class NetworkScanner:
             
         if '21(' in ports_str:
             return "FTP Server"
-            
-        if '554(' in ports_str or '8000(' in ports_str:
-            return "Camera/Media Device"
-            
+
         if '1883(' in ports_str or '8883(' in ports_str:
             return "IoT Device"
             

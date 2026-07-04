@@ -1,6 +1,7 @@
 import subprocess
 import socket
 import select
+import selectors
 import requests
 import logging
 import time
@@ -83,15 +84,18 @@ class DeviceInfo:
             return False
 
     def scan_open_ports(self, ip, ports, timeout=None):
-        """Concurrently probe a list of ports on ip via non-blocking connect + select,
-        returning the sorted list of ports that are open. Unlike spinning up a
-        ThreadPoolExecutor per host, this uses a single thread regardless of how many
+        """Concurrently probe a list of ports on ip via non-blocking connect + a
+        selector, returning the sorted list of ports that are open. Unlike spinning up
+        a ThreadPoolExecutor per host, this uses a single thread regardless of how many
         ports/hosts are scanned at once, so it stays correct when many hosts are being
         scanned in parallel (a per-host thread pool multiplies with outer scan
-        concurrency and starves the OS/GIL, causing false negatives under load)."""
+        concurrency and starves the OS/GIL, causing false negatives under load).
+        Uses selectors (epoll/kqueue where available) instead of raw select() to avoid
+        its ~1024 file-descriptor ceiling once the port list grows."""
         timeout = self.timeout if timeout is None else timeout
         sockets = {}
         open_ports = []
+        sel = selectors.DefaultSelector()
         try:
             for port in ports:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -99,24 +103,28 @@ class DeviceInfo:
                 try:
                     sock.connect_ex((ip, port))
                     sockets[sock] = port
+                    sel.register(sock, selectors.EVENT_WRITE)
                 except OSError:
                     sock.close()
 
             deadline = time.time() + timeout
-            pending = list(sockets.keys())
+            pending = len(sockets)
             while pending:
                 remaining = deadline - time.time()
                 if remaining <= 0:
                     break
-                _, writable, _ = select.select([], pending, [], remaining)
-                if not writable:
+                events = sel.select(timeout=remaining)
+                if not events:
                     break
-                for sock in writable:
-                    pending.remove(sock)
+                for key, _ in events:
+                    sock = key.fileobj
+                    sel.unregister(sock)
+                    pending -= 1
                     if sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR) == 0:
                         open_ports.append(sockets[sock])
             return sorted(open_ports)
         finally:
+            sel.close()
             for sock in sockets:
                 try:
                     sock.close()

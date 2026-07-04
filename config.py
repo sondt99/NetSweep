@@ -64,8 +64,8 @@ class NetSweepConfig:
         if self.network is None:
             self.network = NetworkConfig(
                 common_ports_range=[21, 22, 23, 25, 53, 80, 110, 135, 139, 143,
-                                  443, 993, 995, 1723, 3306, 3389, 5432, 5900,
-                                  8080, 8443],
+                                  443, 465, 554, 587, 993, 995, 1723, 1883,
+                                  3306, 3389, 5432, 5900, 8000, 8080, 8443, 8883],
                 exclude_ports=[]
             )
         if self.output is None:
