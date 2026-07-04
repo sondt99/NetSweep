@@ -7,48 +7,22 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 from tabulate import tabulate
 from tqdm import tqdm
-import signal
 
 from utils.system_utils import get_local_ip, get_local_mac
 from scanner.device_info import DeviceInfo
-# Import the scan_ports function directly from host_scanner
-# This provides the interface expected by NetworkScanner
-import importlib.util
-spec = importlib.util.spec_from_file_location("host_scanner", os.path.join(os.path.dirname(__file__), "..", "host_scanner.py"))
-host_scanner_module = importlib.util.module_from_spec(spec)
+from config import get_config
 
-try:
-    spec.loader.exec_module(host_scanner_module)
-    scan_ports = host_scanner_module.scan_ports
-except:
-    # Fallback if host_scanner is not available
-    def scan_ports(ip, port_range, timeout, threads, verbose=False):
-        return []
+# Service names for the curated discovery port list (see NetworkScanner.discovery_ports).
+# Looked up from a static map instead of socket.getservbyport(): that call is backed by a
+# non-reentrant libc buffer and returns corrupted results when hit concurrently from many
+# scanning threads at once.
+DISCOVERY_PORT_SERVICES = {
+    21: 'ftp', 22: 'ssh', 23: 'telnet', 25: 'smtp', 53: 'dns',
+    80: 'http', 110: 'pop3', 135: 'msrpc', 139: 'netbios', 143: 'imap',
+    443: 'https', 993: 'imaps', 995: 'pop3s', 1723: 'pptp', 3306: 'mysql',
+    3389: 'rdp', 5432: 'postgresql', 5900: 'vnc', 8080: 'http-alt', 8443: 'https-alt',
+}
 
-
-class TimeoutWrapper:
-    """Wrapper class to handle timeout for IP scanning operations"""
-    def __init__(self, timeout_seconds):
-        self.timeout_seconds = timeout_seconds
-        self.result = None
-        self.exception = None
-
-    def _timeout_handler(self, signum, frame):
-        raise TimeoutError(f"Operation timed out after {self.timeout_seconds} seconds")
-
-    def execute_with_timeout(self, func, *args, **kwargs):
-        """Execute a function with a timeout and continue if it takes too long"""
-        self.result = None
-        self.exception = None
-
-        # Use a simple approach - run the function and handle timeouts at a higher level
-        try:
-            # For the timeout mechanism, we'll rely on the ThreadPoolExecutor timeout
-            # This is more reliable than signal-based timeouts
-            return func(*args, **kwargs)
-        except Exception as e:
-            self.exception = e
-            return None
 
 class NetworkScanner:
     def __init__(self, network, num_threads=50, scan_timeout=0.5, ip_timeout=2.0, output_dir="scan_results"):
@@ -62,10 +36,13 @@ class NetworkScanner:
         self.results = []
         self.local_ip = get_local_ip()
         self.device_info = DeviceInfo()
-        self.timeout_wrapper = TimeoutWrapper(ip_timeout)
         self.skipped_ips = 0  # Track how many IPs were skipped due to timeout
-        # Remove port_scanner as we'll use scan_ports function directly
         self.output_dir = output_dir
+
+        # A /24 sweep classifies devices, it doesn't need a full 1-1000 port scan per
+        # host - that's what the dedicated host_scanner.py is for. Use the curated
+        # discovery port list so per-host scanning stays fast and fits ip_timeout.
+        self.discovery_ports = get_config().network.common_ports_range
 
         # Create output directory if it doesn't exist
         if not os.path.exists(output_dir):
@@ -112,16 +89,16 @@ class NetworkScanner:
                 # Even if we can't get MAC, continue with port scanning
                 vendor = self.device_info.get_vendor(mac) if mac else "N/A"
 
-                # Scan for open ports - this is the main time-consuming operation
-                open_ports = scan_ports(ip, "1-1000", self.timeout, 10, verbose=False)
+                # Scan a curated list of common ports for device classification (a full
+                # 1-1000 sweep per host belongs to the dedicated host_scanner.py, not a
+                # /24 discovery pass - see self.discovery_ports). Uses a single-thread
+                # non-blocking scan rather than a per-host thread pool, since spinning up
+                # one ThreadPoolExecutor per concurrently-scanned host multiplies with the
+                # outer scan concurrency and starves the OS/GIL, causing false negatives.
+                open_ports = self.device_info.scan_open_ports(str(ip), self.discovery_ports, self.timeout)
 
-                # Convert port tuples to strings for display
-                port_strings = []
-                for port_tuple in open_ports:
-                    if isinstance(port_tuple, tuple):
-                        port_strings.append(f"{port_tuple[0]}({port_tuple[1]})")
-                    else:
-                        port_strings.append(str(port_tuple))
+                # Convert ports to display strings
+                port_strings = [f"{port}({DISCOVERY_PORT_SERVICES.get(port, 'unknown')})" for port in open_ports]
 
                 # Determine device type based on open ports
                 device_type = self._determine_device_type(port_strings)
@@ -252,14 +229,18 @@ class NetworkScanner:
         return self.results
     
     def export_results(self, format_type):
+        if not self.results:
+            print("No devices found - skipping export.")
+            return
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{self.output_dir}/scan_{timestamp}"
-        
+
         if format_type.lower() == 'json':
             with open(f"{filename}.json", 'w') as f:
                 json.dump(self.results, f, indent=4)
             print(f"Results exported to {filename}.json")
-            
+
         elif format_type.lower() == 'csv':
             with open(f"{filename}.csv", 'w', newline='') as f:
                 writer = csv.DictWriter(f, fieldnames=self.results[0].keys())
