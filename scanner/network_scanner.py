@@ -17,12 +17,30 @@ from config import get_config
 # non-reentrant libc buffer and returns corrupted results when hit concurrently from many
 # scanning threads at once.
 DISCOVERY_PORT_SERVICES = {
-    21: 'ftp', 22: 'ssh', 23: 'telnet', 25: 'smtp', 53: 'dns',
-    80: 'http', 110: 'pop3', 135: 'msrpc', 139: 'netbios', 143: 'imap',
-    443: 'https', 465: 'smtps', 554: 'rtsp', 587: 'smtp-sub', 993: 'imaps',
-    995: 'pop3s', 1723: 'pptp', 1883: 'mqtt', 3306: 'mysql', 3389: 'rdp',
-    5432: 'postgresql', 5900: 'vnc', 8000: 'http-alt', 8080: 'http-alt',
-    8443: 'https-alt', 8883: 'mqtt-ssl',
+    7: 'echo', 9: 'discard', 13: 'daytime', 21: 'ftp', 22: 'ssh', 23: 'telnet',
+    25: 'smtp', 26: 'rsftp', 37: 'time', 53: 'dns', 79: 'finger', 80: 'http',
+    81: 'hosts2-ns', 88: 'kerberos', 106: 'pop3pw', 110: 'pop3', 111: 'rpcbind',
+    113: 'ident', 119: 'nntp', 135: 'msrpc', 139: 'netbios', 143: 'imap',
+    144: 'news', 179: 'bgp', 199: 'smux', 389: 'ldap', 427: 'svrloc',
+    443: 'https', 444: 'snpp', 445: 'microsoft-ds', 465: 'smtps', 513: 'login',
+    514: 'shell', 515: 'printer', 543: 'klogin', 544: 'kshell', 548: 'afp',
+    554: 'rtsp', 587: 'smtp-sub', 631: 'ipp', 646: 'ldp', 873: 'rsync',
+    990: 'ftps', 993: 'imaps', 995: 'pop3s', 1025: 'nfs-or-iis',
+    1026: 'lsa-or-nterm', 1027: 'iis', 1028: 'unknown', 1029: 'ms-lsa',
+    1110: 'nfsd-status', 1433: 'mssql', 1720: 'h323q931', 1723: 'pptp',
+    1755: 'wms', 1883: 'mqtt', 1900: 'upnp', 2000: 'cisco-sccp', 2001: 'dc',
+    2049: 'nfs', 2121: 'ccproxy-ftp', 2717: 'pn-requester', 3000: 'ppp',
+    3128: 'squid-http', 3306: 'mysql', 3389: 'rdp', 3986: 'mapper-ws_ethd',
+    4899: 'radmin', 5000: 'upnp', 5009: 'airport-admin', 5051: 'ida-agent',
+    5060: 'sip', 5101: 'admdog', 5190: 'aol', 5357: 'wsdapi',
+    5432: 'postgresql', 5631: 'pcanywhere', 5666: 'nrpe', 5800: 'vnc-http',
+    5900: 'vnc', 6000: 'x11', 6001: 'x11:1', 6646: 'unknown', 7070: 'realserver',
+    8000: 'http-alt', 8008: 'http', 8009: 'ajp13', 8080: 'http-proxy',
+    8081: 'blackice-icecap', 8443: 'https-alt', 8883: 'mqtt-ssl',
+    8888: 'sun-answerbook', 9100: 'jetdirect', 9999: 'abyss',
+    10000: 'snet-sensor-mgmt', 32768: 'filenet-tms', 49152: 'unknown',
+    49153: 'unknown', 49154: 'unknown', 49155: 'unknown', 49156: 'unknown',
+    49157: 'unknown',
 }
 
 
