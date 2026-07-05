@@ -4,6 +4,7 @@ import os
 import json
 import csv
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 from tabulate import tabulate
 from tqdm import tqdm
@@ -45,7 +46,10 @@ DISCOVERY_PORT_SERVICES = {
 
 
 class NetworkScanner:
-    def __init__(self, network, num_threads=50, scan_timeout=0.5, ip_timeout=2.0, output_dir="scan_results"):
+    """Sweeps a CIDR network, classifying each responsive host by open ports/MAC/vendor."""
+
+    def __init__(self, network: str, num_threads: int = 50, scan_timeout: float = 0.5,
+                 ip_timeout: float = 2.0, output_dir: str = "scan_results"):
         self.network = network
         self.num_threads = num_threads
         self.timeout = scan_timeout
@@ -68,7 +72,7 @@ class NetworkScanner:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-    def _load_known_devices(self):
+    def _load_known_devices(self) -> Dict[str, Dict[str, str]]:
         # Load known devices from a JSON file if it exists
         known_devices_file = "config/known_devices.json"
         default_devices = {
@@ -85,7 +89,7 @@ class NetworkScanner:
                 return default_devices
         return default_devices
 
-    def scan_ip(self, ip):
+    def scan_ip(self, ip) -> Optional[Dict[str, Any]]:
         try:
             # First check if the device is alive
             is_alive = self.device_info.check_device_alive(ip)
@@ -100,7 +104,7 @@ class NetworkScanner:
                 else:
                     # Try to get MAC address with limited retries
                     max_retries = 2
-                    for attempt in range(max_retries):
+                    for _attempt in range(max_retries):
                         mac = self.device_info.get_mac_address(str(ip))
                         if mac:
                             break
@@ -144,11 +148,11 @@ class NetworkScanner:
                 # Device is not alive, return None
                 return None
 
-        except Exception as e:
+        except Exception:
             # All errors will be handled by the ThreadPoolExecutor timeout
             return None
     
-    def _determine_device_type(self, open_ports):
+    def _determine_device_type(self, open_ports: List[str]) -> str:
         if not open_ports:
             return "Unknown"
             
@@ -185,7 +189,7 @@ class NetworkScanner:
             
         return "Generic Device"
 
-    def scan(self, export_format=None):
+    def scan(self, export_format: Optional[str] = None) -> List[Dict[str, Any]]:
         print("\nScanning network, please wait...")
         self.start_time = time.time()
         network = ipaddress.ip_network(self.network)
@@ -250,7 +254,7 @@ class NetworkScanner:
             
         return self.results
     
-    def export_results(self, format_type):
+    def export_results(self, format_type: str) -> None:
         if not self.results:
             print("No devices found - skipping export.")
             return

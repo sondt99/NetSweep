@@ -3,7 +3,7 @@ import argparse
 from scanner.network_scanner import NetworkScanner
 from utils.network_utils import get_local_networks
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Advanced Network Scanner")
     parser.add_argument("-n", "--network", help="Network to scan (CIDR format, e.g., 192.168.1.0/24)")
     parser.add_argument("-t", "--threads", type=int, default=50, help="Number of threads (default: 50)")

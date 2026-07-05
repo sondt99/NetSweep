@@ -9,9 +9,12 @@ import ssl
 import time
 import json
 import os
+from typing import Any, Dict, List, Optional, Tuple
 
 class ServiceDetector:
-    def __init__(self, target, timeout=2.0, verbose=False):
+    """Detects the service, version, and (for SSL ports) certificate running on a port."""
+
+    def __init__(self, target: str, timeout: float = 2.0, verbose: bool = False):
         self.target = target
         self.timeout = timeout
         self.verbose = verbose
@@ -46,7 +49,7 @@ class ServiceDetector:
             "MONGODB": re.compile(r"^.*version.*$", re.IGNORECASE | re.MULTILINE | re.DOTALL)
         }
     
-    def detect_service(self, port):
+    def detect_service(self, port: int) -> Dict[str, Any]:
         """Detect service on a specific port"""
         if self.verbose:
             print(f"[*] Detecting service on port {port}...")
@@ -84,7 +87,7 @@ class ServiceDetector:
             "ssl_cert": cert_info
         }
     
-    def _get_common_service(self, port):
+    def _get_common_service(self, port: int) -> str:
         """Get common service name based on port number"""
         common_ports = {
             21: "ftp",
@@ -115,7 +118,7 @@ class ServiceDetector:
         
         return common_ports.get(port, "unknown")
     
-    def _get_banner(self, port, service_name):
+    def _get_banner(self, port: int, service_name: str) -> Optional[str]:
         """Get service banner"""
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -157,7 +160,7 @@ class ServiceDetector:
                 print(f"[-] Error getting banner on port {port}: {e}")
             return None
     
-    def _get_ssl_banner(self, port):
+    def _get_ssl_banner(self, port: int) -> Optional[str]:
         """Get banner using SSL connection"""
         try:
             context = ssl.create_default_context()
@@ -200,20 +203,34 @@ class ServiceDetector:
                 print(f"[-] Error getting SSL banner on port {port}: {e}")
             return None
     
-    def _get_ssl_cert_info(self, port):
+    @staticmethod
+    def _extract_cert_names(rdns: Any) -> Dict[str, str]:
+        """Extract CN/O/OU short names from an x509 subject or issuer RDN sequence."""
+        names = {}
+        for item in rdns:
+            for key, value in item:
+                if key == "commonName":
+                    names["CN"] = value
+                elif key == "organizationName":
+                    names["O"] = value
+                elif key == "organizationalUnitName":
+                    names["OU"] = value
+        return names
+
+    def _get_ssl_cert_info(self, port: int) -> Optional[Dict[str, Any]]:
         """Get SSL certificate information"""
         try:
             context = ssl.create_default_context()
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
-            
+
             with socket.create_connection((self.target, port), timeout=self.timeout) as sock:
                 with context.wrap_socket(sock, server_hostname=self.target) as ssl_sock:
                     cert = ssl_sock.getpeercert(binary_form=False)
-                    
+
                     if not cert:
                         return None
-                    
+
                     cert_info = {
                         "subject": {},
                         "issuer": {},
@@ -222,34 +239,20 @@ class ServiceDetector:
                         "notBefore": cert.get("notBefore", ""),
                         "notAfter": cert.get("notAfter", "")
                     }
-                    
+
                     if "subject" in cert:
-                        for item in cert["subject"]:
-                            for key, value in item:
-                                if key == "commonName":
-                                    cert_info["subject"]["CN"] = value
-                                elif key == "organizationName":
-                                    cert_info["subject"]["O"] = value
-                                elif key == "organizationalUnitName":
-                                    cert_info["subject"]["OU"] = value
-                    
+                        cert_info["subject"] = self._extract_cert_names(cert["subject"])
+
                     if "issuer" in cert:
-                        for item in cert["issuer"]:
-                            for key, value in item:
-                                if key == "commonName":
-                                    cert_info["issuer"]["CN"] = value
-                                elif key == "organizationName":
-                                    cert_info["issuer"]["O"] = value
-                                elif key == "organizationalUnitName":
-                                    cert_info["issuer"]["OU"] = value
-                    
+                        cert_info["issuer"] = self._extract_cert_names(cert["issuer"])
+
                     return cert_info
         except Exception as e:
             if self.verbose:
                 print(f"[-] Error getting SSL certificate on port {port}: {e}")
             return None
-    
-    def _identify_service_from_banner(self, banner, service_name, port, ssl=False):
+
+    def _identify_service_from_banner(self, banner: str, service_name: str, port: int, ssl: bool = False) -> Tuple[str, str]:
         """Identify service and version from banner"""
         version = "unknown"
         
@@ -351,7 +354,7 @@ class ServiceDetector:
         
         return service_name, version
 
-    def scan_services(self, ports, auto_export=True, output_file=None):
+    def scan_services(self, ports: List[int], auto_export: bool = True, output_file: Optional[str] = None) -> List[Dict[str, Any]]:
         """Scan multiple ports for services
         
         Args:
@@ -386,7 +389,7 @@ class ServiceDetector:
         
         return results
 
-    def export_to_json(self, results, output_file=None):
+    def export_to_json(self, results: List[Dict[str, Any]], output_file: Optional[str] = None) -> str:
         """Export scan results to a JSON file
         
         Args:

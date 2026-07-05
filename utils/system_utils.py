@@ -1,7 +1,9 @@
 import socket
 import netifaces
+from typing import Optional
 
-def get_local_ip():
+def get_local_ip() -> Optional[str]:
+    """Get the local IPv4 address used for outbound traffic, or None on failure."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -11,7 +13,8 @@ def get_local_ip():
     except:
         return None
 
-def get_local_mac():
+def get_local_mac() -> Optional[str]:
+    """Get the MAC address of the first non-loopback interface, or None on failure."""
     try:
         interfaces = netifaces.interfaces()
         for iface in interfaces:

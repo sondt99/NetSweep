@@ -1,7 +1,6 @@
-/scanner/__pycache__
-/utils/__pycache__
-/config/__pycache__
+__pycache__/
 *.pyc
 /results
 /scan_results
-*.pyc
+.pytest_cache/
+.coverage

@@ -5,17 +5,20 @@ import selectors
 import requests
 import logging
 import time
+from typing import Dict, List, Optional
 from getmac import get_mac_address
 import platform
 
 class DeviceInfo:
+    """Host-liveness, port, MAC, and vendor lookups used by the LAN scanner."""
+
     def __init__(self):
-        self.vendor_cache = {}
-        self.mac_cache = {}
+        self.vendor_cache: Dict[str, str] = {}
+        self.mac_cache: Dict[str, str] = {}
         self.timeout = 0.5
         logging.basicConfig(level=logging.INFO)
 
-    def check_device_alive(self, ip):
+    def check_device_alive(self, ip) -> bool:
         try:
             # Probe common ports concurrently (non-blocking connect + select) instead of
             # one-by-one, so the whole probe costs ~self.timeout instead of N * self.timeout
@@ -35,7 +38,7 @@ class DeviceInfo:
             logging.error(f"Error checking if device is alive: {e}")
             return False
 
-    def _check_ports_concurrent(self, ip):
+    def _check_ports_concurrent(self, ip: str) -> bool:
         """Try connecting to several common ports at once; return True on first success."""
         common_ports = [80, 443, 22, 8080, 53, 3389, 445, 139, 21, 23, 5000]
         sockets = {}
@@ -70,7 +73,7 @@ class DeviceInfo:
                 except OSError:
                     pass
 
-    def _ping(self, ip):
+    def _ping(self, ip: str) -> bool:
         try:
             is_windows = platform.system().lower() == "windows"
             param = "-n" if is_windows else "-c"
@@ -83,7 +86,7 @@ class DeviceInfo:
         except Exception:
             return False
 
-    def scan_open_ports(self, ip, ports, timeout=None):
+    def scan_open_ports(self, ip: str, ports: List[int], timeout: Optional[float] = None) -> List[int]:
         """Concurrently probe a list of ports on ip via non-blocking connect + a
         selector, returning the sorted list of ports that are open. Unlike spinning up
         a ThreadPoolExecutor per host, this uses a single thread regardless of how many
@@ -131,7 +134,7 @@ class DeviceInfo:
                 except OSError:
                     pass
 
-    def _check_arp(self, ip):
+    def _check_arp(self, ip: str) -> bool:
         try:
             if platform.system().lower() == "windows":
                 result = subprocess.run(["arp", "-a", ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1)
@@ -153,7 +156,7 @@ class DeviceInfo:
         except Exception:
             return False
 
-    def get_mac_address(self, ip):
+    def get_mac_address(self, ip: str) -> Optional[str]:
         if ip in self.mac_cache:
             return self.mac_cache[ip]
 
@@ -166,7 +169,7 @@ class DeviceInfo:
             logging.error(f"Error when getting MAC for {ip}: {str(e)}")
         return None
 
-    def get_vendor(self, mac_address):
+    def get_vendor(self, mac_address: Optional[str]) -> str:
         if not mac_address or mac_address == "N/A":
             return "N/A"
 

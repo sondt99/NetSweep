@@ -1,81 +1,108 @@
-import os
 import sys
 import subprocess
+from typing import Callable, Optional, Union
 from config import get_config
-from utils.error_handler import get_error_handler, log_info, log_warning, handle_errors, NetSweepError
+from utils.error_handler import get_error_handler, log_info, log_warning, handle_errors
 
-def banner():
+InputFunc = Callable[[str], str]
+
+
+def banner() -> None:
     """Display the application banner"""
     print(r"""
-            _                                         	
-           | |                                        	
- _ __   ___| |_   ___  ___ __ _ _ __  _ __   ___ _ __ 
+            _
+           | |
+ _ __   ___| |_   ___  ___ __ _ _ __  _ __   ___ _ __
 | '_ \ / _ \ __| / __|/ __/ _` | '_ \| '_ \ / _ \ '__|
-| | | |  __/ |_  \__ \ (_| (_| | | | | | | |  __/ |   
-|_| |_|\___|\__| |___/\___\__,_|_| |_|_| |_|\___|_|   
-                                                                                                      
+| | | |  __/ |_  \__ \ (_| (_| | | | | | | |  __/ |
+|_| |_|\___|\__| |___/\___\__,_|_| |_|_| |_|\___|_|
+
     """)
     print("Developed by: sondt\n")
 
-def build_args_common():
+
+def _resolve_numeric_arg(
+    raw_input: str,
+    default: Union[int, float],
+    cast: Callable[[str], Union[int, float]],
+    invalid_msg: str,
+    non_positive_msg: str,
+) -> Optional[Union[int, float]]:
+    """Resolve a numeric CLI flag value from raw prompt input.
+
+    Returns the default when raw_input is blank, the parsed value when valid and
+    positive, or None (flag omitted) when invalid/non-positive - matching the
+    original prompt behavior where a bad value skips the flag instead of falling
+    back to the default.
+    """
+    if not raw_input:
+        return default
+    try:
+        value = cast(raw_input)
+    except ValueError:
+        log_warning(invalid_msg)
+        return None
+    if value <= 0:
+        log_warning(non_positive_msg)
+        return None
+    return value
+
+
+def _resolve_output_format(raw_input: str, default: str) -> str:
+    """Resolve the export format from raw prompt input, falling back to default."""
+    if raw_input in ("json", "csv", "txt"):
+        return raw_input
+    if raw_input != "":
+        log_warning("Invalid output format, using default")
+    return default
+
+
+def _resolve_verbose_flag(raw_input: str, default_verbose: bool) -> bool:
+    """Resolve whether verbose output should be enabled from raw prompt input."""
+    if raw_input == "y":
+        return True
+    if raw_input == "n":
+        return False
+    return raw_input == "" and default_verbose
+
+
+def build_args_common(input_func: InputFunc = input) -> str:
     """Build common arguments based on user input and configuration"""
     config = get_config()
-    handler = get_error_handler()
 
     args = []
 
     # Threads
-    threads_input = input(f"Set threads (default {config.scan.max_workers}, Enter to skip): ")
-    if threads_input:
-        try:
-            threads = int(threads_input)
-            if threads > 0:
-                args.extend(["-t", str(threads)])
-            else:
-                log_warning("Thread count must be positive, using default")
-        except ValueError:
-            log_warning("Invalid thread count, using default")
-    else:
-        args.extend(["-t", str(config.scan.max_workers)])
+    threads_input = input_func(f"Set threads (default {config.scan.max_workers}, Enter to skip): ")
+    threads = _resolve_numeric_arg(
+        threads_input, config.scan.max_workers, int,
+        "Invalid thread count, using default",
+        "Thread count must be positive, using default",
+    )
+    if threads is not None:
+        args.extend(["-t", str(threads)])
 
     # Timeout
-    timeout_input = input(f"Set timeout (default {config.scan.timeout}s, Enter to skip): ")
-    if timeout_input:
-        try:
-            timeout = float(timeout_input)
-            if timeout > 0:
-                args.extend(["-T", str(timeout)])
-            else:
-                log_warning("Timeout must be positive, using default")
-        except ValueError:
-            log_warning("Invalid timeout value, using default")
-    else:
-        args.extend(["-T", str(config.scan.timeout)])
+    timeout_input = input_func(f"Set timeout (default {config.scan.timeout}s, Enter to skip): ")
+    timeout = _resolve_numeric_arg(
+        timeout_input, config.scan.timeout, float,
+        "Invalid timeout value, using default",
+        "Timeout must be positive, using default",
+    )
+    if timeout is not None:
+        args.extend(["-T", str(timeout)])
 
     # Output format
-    output_input = input(f"Export format? (json/csv/txt, default {config.output.export_format}, Enter to skip): ").lower()
-    if output_input in ["json", "csv", "txt"]:
-        args.extend(["-o", output_input])
-    elif output_input == "":
-        args.extend(["-o", config.output.export_format])
-    else:
-        log_warning("Invalid output format, using default")
-        args.extend(["-o", config.output.export_format])
+    output_input = input_func(f"Export format? (json/csv/txt, default {config.output.export_format}, Enter to skip): ").lower()
+    args.extend(["-o", _resolve_output_format(output_input, config.output.export_format)])
 
     # Output directory
-    output_dir_input = input(f"Output directory (default {config.output.default_output_dir}, Enter to skip): ")
-    if output_dir_input:
-        args.extend(["-d", output_dir_input])
-    else:
-        args.extend(["-d", config.output.default_output_dir])
+    output_dir_input = input_func(f"Output directory (default {config.output.default_output_dir}, Enter to skip): ")
+    args.extend(["-d", output_dir_input or config.output.default_output_dir])
 
     # Verbose output
-    verbose_input = input(f"Enable verbose output? (y/n, default {'y' if config.output.verbose else 'n'}): ").lower()
-    if verbose_input == "y":
-        args.append("-v")
-    elif verbose_input == "n":
-        pass  # Don't add -v flag
-    elif verbose_input == "" and config.output.verbose:
+    verbose_input = input_func(f"Enable verbose output? (y/n, default {'y' if config.output.verbose else 'n'}): ").lower()
+    if _resolve_verbose_flag(verbose_input, config.output.verbose):
         args.append("-v")
 
     return " ".join(args)
@@ -97,11 +124,11 @@ def execute_scanner(scanner_type: str, cmd: list) -> None:
         return result
     except subprocess.CalledProcessError as e:
         handler = get_error_handler()
-        handler.log_error(f"{scanner_type.capitalize()} scanner failed with exit code {e.returncode}")
+        handler.log_warning(f"{scanner_type.capitalize()} scanner failed with exit code {e.returncode}")
         if e.stdout:
-            handler.log_error(f"Scanner output: {e.stdout}")
+            handler.log_warning(f"Scanner output: {e.stdout}")
         if e.stderr:
-            handler.log_error(f"Scanner errors: {e.stderr}")
+            handler.log_warning(f"Scanner errors: {e.stderr}")
         raise
     except FileNotFoundError:
         raise FileNotFoundError(f"Scanner script not found: {cmd[1]}")

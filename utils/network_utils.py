@@ -3,8 +3,9 @@ import socket
 import netifaces
 import subprocess
 import re
+from typing import Dict, List
 
-def get_local_networks():
+def get_local_networks() -> List[Dict[str, str]]:
     """Get all local networks with their interface names"""
     networks = []
     
@@ -41,7 +42,7 @@ def get_local_networks():
     
     return networks
 
-def get_interface_friendly_names():
+def get_interface_friendly_names() -> Dict[str, str]:
     """Get mapping between interface IDs and their friendly names (Windows)"""
     interface_names = {}
     
@@ -76,7 +77,7 @@ def get_interface_friendly_names():
     
     return interface_names
 
-def get_local_ip():
+def get_local_ip() -> str:
     """Get local IP address"""
     try:
         # This creates a socket that doesn't actually connect to anything
