@@ -75,6 +75,7 @@ def scan_port(ip: str, port: int, timeout: float) -> Tuple[int, bool, Optional[s
         result = sock.connect_ex((ip, port))
         if result == 0:
             service = get_service_name(port)
+            sock.close()
             return port, True, service
         sock.close()
         return port, False, None
@@ -160,7 +161,10 @@ def get_ttl(ip: str) -> Optional[int]:
             ping_cmd = f"ping -c 1 {ip}"
 
         response = os.popen(ping_cmd).read()
-        ttl_index = response.find("TTL=")
+        # Linux/macOS ping prints lowercase "ttl=NN"; only Windows uses "TTL=".
+        # A case-sensitive search here always misses on non-Windows, so
+        # detect_os() silently failed on every host on those platforms.
+        ttl_index = response.lower().find("ttl=")
         if ttl_index != -1:
             ttl = int(response[ttl_index+4:].split()[0])
             return ttl

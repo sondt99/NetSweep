@@ -1,4 +1,5 @@
 """Unit tests for host_scanner.py."""
+import io
 import socket
 import threading
 
@@ -67,6 +68,24 @@ class TestScanPort:
         assert port == local_listener
         assert is_open is True
 
+    def test_open_port_socket_is_closed(self, local_listener, monkeypatch):
+        # Regression test: the open-port branch used to return before calling
+        # sock.close(), leaking the fd until garbage collection (a real
+        # ResourceWarning burst when scanning a host with many open ports).
+        created = []
+        real_socket = socket.socket
+
+        def tracking_socket(*args, **kwargs):
+            sock = real_socket(*args, **kwargs)
+            created.append(sock)
+            return sock
+
+        monkeypatch.setattr(socket, "socket", tracking_socket)
+        hs.scan_port("127.0.0.1", local_listener, timeout=1.0)
+
+        assert created, "scan_port did not create a socket"
+        assert created[0].fileno() == -1  # -1 means the socket has been closed
+
     def test_closed_port_detected(self):
         # Port 1 is a privileged port extremely unlikely to have a listener
         # in a sandboxed test environment, and connect_ex fails fast for
@@ -87,6 +106,26 @@ class TestScanPorts:
         results = hs.scan_ports("127.0.0.1", port_range, timeout=1.0, threads=5, verbose=False)
         assert len(results) == 1
         assert results[0][0] == local_listener
+
+
+class TestGetTtl:
+    def test_parses_lowercase_ttl_from_linux_macos_ping(self, monkeypatch):
+        # Regression test: get_ttl used to search for "TTL=" (uppercase only),
+        # but Linux/macOS `ping` prints lowercase "ttl=NN", so this always
+        # returned None (and detect_os always reported "Unknown") on those
+        # platforms - which is also this project's primary dev/CI platform.
+        sample_output = "64 bytes from 127.0.0.1: icmp_seq=1 ttl=57 time=0.080 ms\n"
+        monkeypatch.setattr(hs.os, "popen", lambda cmd: io.StringIO(sample_output))
+        assert hs.get_ttl("127.0.0.1") == 57
+
+    def test_parses_uppercase_ttl_from_windows_ping(self, monkeypatch):
+        sample_output = "Reply from 127.0.0.1: bytes=32 time<1ms TTL=128\n"
+        monkeypatch.setattr(hs.os, "popen", lambda cmd: io.StringIO(sample_output))
+        assert hs.get_ttl("127.0.0.1") == 128
+
+    def test_no_ttl_in_output_returns_none(self, monkeypatch):
+        monkeypatch.setattr(hs.os, "popen", lambda cmd: io.StringIO("Request timed out.\n"))
+        assert hs.get_ttl("127.0.0.1") is None
 
 
 class TestDetectOs:

@@ -3,11 +3,12 @@
 Advanced port scanner module for Host Scanner Network
 """
 
+import errno
 import socket
 import random
 import concurrent.futures
 from typing import Dict, Iterable, List, Tuple
-from scapy.all import sr1, IP, TCP, ICMP
+from scapy.all import sr1, IP, TCP, UDP, ICMP
 
 class PortScanner:
     """Multi-technique TCP/UDP port scanner (connect, SYN, UDP)."""
@@ -49,7 +50,9 @@ class PortScanner:
                 if self.verbose:
                     print(f"[+] Port {port}/tcp is open")
                 return port, "open"
-            elif result == 111:  # Connection refused
+            elif result == errno.ECONNREFUSED:  # Connection refused (111 on Linux,
+                                                 # 61 on macOS, 10061 on Windows -
+                                                 # the literal 111 only worked on Linux)
                 return port, "closed"
             else:
                 return port, "filtered"

@@ -29,6 +29,30 @@ class NetworkConfig:
     exclude_ports: List[int] = None
     interface_timeout: float = 2.0
 
+    def __post_init__(self):
+        """Populate list defaults when constructed directly (dataclasses can't use
+        mutable defaults), so this stays correct whether built via NetSweepConfig()
+        or on its own - e.g. ConfigManager.load_config() builds NetworkConfig(**data)
+        straight from a saved/partial config file, bypassing NetSweepConfig.__post_init__."""
+        if self.common_ports_range is None:
+            # nmap's top-100 TCP ports by real-world observed frequency
+            # (from /usr/share/nmap/nmap-services), plus MQTT (1883/8883) for
+            # IoT devices that don't show up in that general-purpose ranking.
+            self.common_ports_range = [7, 9, 13, 21, 22, 23, 25, 26, 37, 53, 79, 80,
+                              81, 88, 106, 110, 111, 113, 119, 135, 139, 143,
+                              144, 179, 199, 389, 427, 443, 444, 445, 465, 513,
+                              514, 515, 543, 544, 548, 554, 587, 631, 646, 873,
+                              990, 993, 995, 1025, 1026, 1027, 1028, 1029, 1110,
+                              1433, 1720, 1723, 1755, 1883, 1900, 2000, 2001,
+                              2049, 2121, 2717, 3000, 3128, 3306, 3389, 3986,
+                              4899, 5000, 5009, 5051, 5060, 5101, 5190, 5357,
+                              5432, 5631, 5666, 5800, 5900, 6000, 6001, 6646,
+                              7070, 8000, 8008, 8009, 8080, 8081, 8443, 8883,
+                              8888, 9100, 9999, 10000, 32768, 49152, 49153,
+                              49154, 49155, 49156, 49157]
+        if self.exclude_ports is None:
+            self.exclude_ports = []
+
 
 @dataclass
 class OutputConfig:
@@ -62,24 +86,7 @@ class NetSweepConfig:
         if self.scan is None:
             self.scan = ScanConfig()
         if self.network is None:
-            self.network = NetworkConfig(
-                # nmap's top-100 TCP ports by real-world observed frequency
-                # (from /usr/share/nmap/nmap-services), plus MQTT (1883/8883) for
-                # IoT devices that don't show up in that general-purpose ranking.
-                common_ports_range=[7, 9, 13, 21, 22, 23, 25, 26, 37, 53, 79, 80,
-                                  81, 88, 106, 110, 111, 113, 119, 135, 139, 143,
-                                  144, 179, 199, 389, 427, 443, 444, 445, 465, 513,
-                                  514, 515, 543, 544, 548, 554, 587, 631, 646, 873,
-                                  990, 993, 995, 1025, 1026, 1027, 1028, 1029, 1110,
-                                  1433, 1720, 1723, 1755, 1883, 1900, 2000, 2001,
-                                  2049, 2121, 2717, 3000, 3128, 3306, 3389, 3986,
-                                  4899, 5000, 5009, 5051, 5060, 5101, 5190, 5357,
-                                  5432, 5631, 5666, 5800, 5900, 6000, 6001, 6646,
-                                  7070, 8000, 8008, 8009, 8080, 8081, 8443, 8883,
-                                  8888, 9100, 9999, 10000, 32768, 49152, 49153,
-                                  49154, 49155, 49156, 49157],
-                exclude_ports=[]
-            )
+            self.network = NetworkConfig()
         if self.output is None:
             self.output = OutputConfig()
         if self.security is None:

@@ -125,9 +125,26 @@ class ServiceDetector:
             sock.settimeout(self.timeout)
             sock.connect((self.target, port))
             
-            # Send appropriate probe based on service
-            if service_name.lower() in [s.lower() for s in self.service_probes]:
-                probe = self.service_probes[service_name.upper()] % self.target.encode()
+            # Send appropriate probe based on service. Alt-HTTP(S) port names like
+            # "http-proxy" (8080) or "https-alt" (8443) don't have their own probe
+            # dict entry, so route anything starting with http(s) to the HTTP(S)
+            # probe instead of silently falling through to the generic one below.
+            probe_key = service_name.upper()
+            if probe_key.startswith("HTTPS"):
+                probe_key = "HTTPS"
+            elif probe_key.startswith("HTTP"):
+                probe_key = "HTTP"
+
+            if probe_key in self.service_probes:
+                probe_template = self.service_probes[probe_key]
+                # Only HTTP/HTTPS probes contain a "%s" placeholder for the host;
+                # every other probe is a literal (often binary) payload, and
+                # applying bytes "%" formatting to one without a placeholder
+                # raises "not all arguments converted during bytes formatting".
+                if b"%s" in probe_template:
+                    probe = probe_template % self.target.encode()
+                else:
+                    probe = probe_template
                 if probe:  # Only send if probe is not empty
                     sock.send(probe)
             else:

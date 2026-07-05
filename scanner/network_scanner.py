@@ -161,7 +161,12 @@ class NetworkScanner:
         # Simple heuristics to determine device type.
         # RTSP/camera signature checked first: it's far more specific than "has 80+443",
         # which most devices with a web admin UI (including cameras themselves) also have.
-        if '554(' in ports_str or '8000(' in ports_str:
+        # Port 8000 alone used to also trigger this branch, but it's an extremely
+        # common generic alt-HTTP port (dev servers, NAS, printers, Sonos, etc.),
+        # not camera-specific - it mislabeled plenty of ordinary web devices as
+        # cameras (verified live: a laptop NIC exposing only 8000 was reported as
+        # "Camera/Media Device"). RTSP (554) is the real camera signature.
+        if '554(' in ports_str:
             return "Camera/Media Device"
 
         if '80(' in ports_str and ('443(' in ports_str or '8443(' in ports_str):
@@ -209,7 +214,13 @@ class NetworkScanner:
                     try:
                         # Add timeout to the future.result() call
                         result = future.result(timeout=self.ip_timeout)  # Use exact IP timeout
-                        if result and (result['mac'] != "N/A" or result['ports'] != "N/A"):
+                        # scan_ip() already returns None unless check_device_alive()
+                        # confirmed the host is up (via port probe, ping, or ARP/
+                        # neighbor-table fallback), so any non-None result here is a
+                        # genuinely alive host - keep it even when MAC and ports both
+                        # came back "N/A", instead of silently dropping it and
+                        # undercounting devices_found.
+                        if result:
                             self.results.append(result)
                             self.devices_found += 1
                     except TimeoutError:

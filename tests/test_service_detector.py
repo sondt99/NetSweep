@@ -1,5 +1,7 @@
 """Unit tests for service_detector.py."""
 import json
+import socket
+import threading
 
 import pytest
 
@@ -11,6 +13,33 @@ def detector():
     return ServiceDetector("127.0.0.1", timeout=1.0)
 
 
+@pytest.fixture
+def echo_server():
+    """A real loopback listener that records the first payload it receives."""
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+    received = {}
+
+    def accept_once():
+        try:
+            conn, _ = server.accept()
+            conn.settimeout(2)
+            received["data"] = conn.recv(4096)
+            conn.close()
+        except OSError:
+            pass
+
+    thread = threading.Thread(target=accept_once, daemon=True)
+    thread.start()
+    try:
+        yield port, received
+    finally:
+        thread.join(timeout=2)
+        server.close()
+
+
 class TestGetCommonService:
     def test_known_port(self, detector):
         assert detector._get_common_service(22) == "ssh"
@@ -18,6 +47,65 @@ class TestGetCommonService:
 
     def test_unknown_port(self, detector):
         assert detector._get_common_service(59999) == "unknown"
+
+
+class TestGetBanner:
+    """Regression tests for the _get_banner "%"-formatting crash.
+
+    _get_banner used to unconditionally apply bytes "%" formatting to
+    whichever probe matched the service name, but only the HTTP/HTTPS probes
+    contain a "%s" placeholder - every other probe (FTP/SSH/SMTP/POP3/IMAP/
+    TELNET's empty b"", and DNS/MYSQL/MSSQL/REDIS/MONGODB's raw binary
+    payloads) raised `TypeError: not all arguments converted during bytes
+    formatting`, silently swallowed by a broad except, so banner grabbing was
+    completely broken for every protocol except HTTP/HTTPS. Verified live
+    against a real router's DNS port (53) before this fix.
+    """
+
+    @pytest.mark.parametrize("service_name", [
+        "FTP", "SSH", "SMTP", "POP3", "IMAP", "TELNET",
+        "DNS", "MYSQL", "MSSQL", "REDIS", "MONGODB",
+    ])
+    def test_non_http_probes_do_not_crash(self, detector, echo_server, service_name):
+        port, _ = echo_server
+        # Must not raise - previously every one of these raised TypeError,
+        # which _get_banner's broad except turned into a silent None.
+        detector._get_banner(port, service_name)
+
+    def test_http_probe_is_formatted_with_target_host(self, detector, echo_server):
+        port, received = echo_server
+        detector._get_banner(port, "HTTP")
+        assert b"GET / HTTP/1.1" in received.get("data", b"")
+        assert b"Host: 127.0.0.1" in received.get("data", b"")
+
+    def test_binary_probe_sent_as_is(self, detector, echo_server):
+        port, received = echo_server
+        detector._get_banner(port, "REDIS")
+        assert received.get("data") == b"INFO\r\n"
+
+    def test_empty_probe_sends_nothing(self, detector, echo_server):
+        port, received = echo_server
+        detector._get_banner(port, "SSH")
+        assert received.get("data", b"") == b""
+
+    @pytest.mark.parametrize("alt_name", [
+        "http-proxy",  # port 8080's common-service name
+        "https-alt",   # port 8443's common-service name
+    ])
+    def test_alt_http_port_names_route_to_the_real_http_probe(self, detector, echo_server, alt_name):
+        # Regression test: _get_common_service(8080) returns "http-proxy" and
+        # _get_common_service(8443) returns "https-alt", neither of which is a
+        # key in service_probes (only "HTTP"/"HTTPS" are) - so these very
+        # common LAN alt-HTTP ports used to silently fall back to the generic
+        # b"\r\n\r\n" probe instead of a real HTTP request.
+        port, received = echo_server
+        detector._get_banner(port, alt_name)
+        assert b"GET / HTTP/1.1" in received.get("data", b"")
+
+    def test_unrecognized_service_uses_generic_probe(self, detector, echo_server):
+        port, received = echo_server
+        detector._get_banner(port, "unknown")
+        assert received.get("data") == b"\r\n\r\n"
 
 
 class TestExtractCertNames:

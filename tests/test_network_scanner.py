@@ -73,6 +73,45 @@ class TestDetermineDeviceType:
     def test_unrecognized_ports_are_generic(self, scanner):
         assert scanner._determine_device_type(["9999(abyss)"]) == "Generic Device"
 
+    def test_port_8000_alone_is_not_a_camera(self, scanner):
+        # Regression test: 8000 alone used to also trigger the camera branch,
+        # but it's a generic alt-HTTP port (dev servers/NAS/printers/Sonos),
+        # not camera-specific. Verified live: a laptop NIC exposing only 8000
+        # was misreported as "Camera/Media Device" before this fix.
+        assert scanner._determine_device_type(["8000(http-alt)"]) == "Generic Device"
+
+    def test_port_8000_with_rtsp_is_still_a_camera(self, scanner):
+        assert scanner._determine_device_type(["554(rtsp)", "8000(http-alt)"]) == "Camera/Media Device"
+
+
+class TestScanKeepsAliveHostsWithNoInfo:
+    def test_alive_host_with_no_mac_or_ports_is_still_reported(self, scanner, monkeypatch):
+        # Regression test: scan_ip() only returns non-None once
+        # check_device_alive() has already confirmed liveness (via port probe,
+        # ping, or ARP/neighbor-table fallback), and its own inline comment
+        # says "Add to results even if MAC or ports are N/A" - but scan()'s
+        # results filter used to additionally require a resolved MAC or an
+        # open port, silently dropping genuinely-alive hosts and undercounting
+        # devices_found. 192.168.1.0/30 has exactly 2 usable hosts.
+        def fake_scan_ip(ip):
+            return {
+                "ip": str(ip), "mac": "N/A", "vendor": "N/A", "ports": "N/A",
+                "type": "Unknown", "name": "Unknown", "scan_time": "2026-01-01 00:00:00",
+            }
+
+        monkeypatch.setattr(scanner, "scan_ip", fake_scan_ip)
+        results = scanner.scan(export_format=None)
+
+        assert scanner.devices_found == 2
+        assert len(results) == 2
+        assert all(r["mac"] == "N/A" and r["ports"] == "N/A" for r in results)
+
+    def test_dead_hosts_are_not_reported(self, scanner, monkeypatch):
+        monkeypatch.setattr(scanner, "scan_ip", lambda ip: None)
+        results = scanner.scan(export_format=None)
+        assert scanner.devices_found == 0
+        assert results == []
+
 
 class TestExportResults:
     def _sample_results(self):

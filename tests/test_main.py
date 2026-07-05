@@ -1,4 +1,5 @@
 """Unit tests for main.py (input-prompt helpers, build_args_common, execute_scanner)."""
+import os
 import subprocess
 
 import pytest
@@ -64,15 +65,26 @@ class TestBuildArgsCommon:
     def test_all_blank_uses_config_defaults(self, cfg):
         answers = iter(["", "", "", "", ""])
         result = main.build_args_common(input_func=lambda _prompt: next(answers))
-        assert result == (
-            f"-t {cfg.scan.max_workers} -T {cfg.scan.timeout} "
-            f"-o {cfg.output.export_format} -d {cfg.output.default_output_dir}"
-        )
+        assert result == [
+            "-t", str(cfg.scan.max_workers), "-T", str(cfg.scan.timeout),
+            "-o", cfg.output.export_format, "-d", cfg.output.default_output_dir,
+        ]
 
     def test_custom_valid_values(self):
         answers = iter(["10", "1.5", "csv", "my_out", "y"])
         result = main.build_args_common(input_func=lambda _prompt: next(answers))
-        assert result == "-t 10 -T 1.5 -o csv -d my_out -v"
+        assert result == ["-t", "10", "-T", "1.5", "-o", "csv", "-d", "my_out", "-v"]
+
+    def test_output_dir_with_spaces_survives_intact(self):
+        # Regression test: build_args_common used to return a single string
+        # joined with " ".join(args), which main() then re-split with
+        # .split() before invoking the subprocess - corrupting any value
+        # (like a custom output directory) that itself contained whitespace.
+        # It now returns a list of argv tokens directly, so this must stay intact.
+        answers = iter(["", "", "", "my scan results", ""])
+        result = main.build_args_common(input_func=lambda _prompt: next(answers))
+        assert "-d" in result
+        assert result[result.index("-d") + 1] == "my scan results"
 
     def test_invalid_thread_and_timeout_omit_flags(self, cfg):
         # Matches original (pre-refactor) behavior: an invalid/non-positive
@@ -80,15 +92,14 @@ class TestBuildArgsCommon:
         # substituting the default.
         answers = iter(["-5", "abc", "xml", "", "n"])
         result = main.build_args_common(input_func=lambda _prompt: next(answers))
-        tokens = result.split()
-        assert "-t" not in tokens
-        assert "-T" not in tokens
-        assert f"-o json -d {cfg.output.default_output_dir}" in result
+        assert "-t" not in result
+        assert "-T" not in result
+        assert result == ["-o", "json", "-d", cfg.output.default_output_dir]
 
     def test_verbose_flag_omitted_when_not_requested(self):
         answers = iter(["", "", "", "", "n"])
         result = main.build_args_common(input_func=lambda _prompt: next(answers))
-        assert "-v" not in result.split()
+        assert "-v" not in result
 
 
 class TestExecuteScanner:
@@ -119,3 +130,13 @@ class TestExecuteScanner:
         monkeypatch.setattr(subprocess, "run", fake_run)
         with pytest.raises(FileNotFoundError):
             main.execute_scanner("lan", ["python3", "missing_scanner.py"])
+
+
+class TestScriptDirResolution:
+    def test_script_dir_points_at_the_repo_containing_the_scanners(self):
+        # Regression test: main.py used to invoke bare "lan_scanner.py" /
+        # "host_scanner.py" (relative to the process's cwd), which broke as
+        # soon as main.py was launched from any other working directory.
+        # SCRIPT_DIR anchors those paths to main.py's own location instead.
+        assert os.path.isfile(os.path.join(main.SCRIPT_DIR, "lan_scanner.py"))
+        assert os.path.isfile(os.path.join(main.SCRIPT_DIR, "host_scanner.py"))

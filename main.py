@@ -1,10 +1,16 @@
+import os
 import sys
 import subprocess
-from typing import Callable, Optional, Union
+from typing import Callable, List, Optional, Union
 from config import get_config
 from utils.error_handler import get_error_handler, log_info, log_warning, handle_errors
 
 InputFunc = Callable[[str], str]
+
+# Resolve scanner scripts relative to this file rather than the process's cwd, so
+# the menu still works when main.py is launched from outside the repo directory
+# (e.g. `python3 /path/to/NetSweep/main.py`) instead of `cd NetSweep && python main.py`.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def banner() -> None:
@@ -66,8 +72,13 @@ def _resolve_verbose_flag(raw_input: str, default_verbose: bool) -> bool:
     return raw_input == "" and default_verbose
 
 
-def build_args_common(input_func: InputFunc = input) -> str:
-    """Build common arguments based on user input and configuration"""
+def build_args_common(input_func: InputFunc = input) -> List[str]:
+    """Build common arguments based on user input and configuration.
+
+    Returns a list of argv tokens (not a joined string) so that values containing
+    whitespace - e.g. a custom output directory like "my scan results" - survive
+    intact instead of being re-split into extra positional arguments downstream.
+    """
     config = get_config()
 
     args = []
@@ -105,7 +116,7 @@ def build_args_common(input_func: InputFunc = input) -> str:
     if _resolve_verbose_flag(verbose_input, config.output.verbose):
         args.append("-v")
 
-    return " ".join(args)
+    return args
 
 
 @handle_errors(default_return=None, reraise=True)
@@ -160,7 +171,7 @@ def main():
                 log_info("User selected LAN Scanner")
                 try:
                     args = build_args_common()
-                    cmd = [sys.executable, "lan_scanner.py"] + args.split()
+                    cmd = [sys.executable, os.path.join(SCRIPT_DIR, "lan_scanner.py")] + args
                     print(f"Running: {' '.join(cmd)}")
                     execute_scanner("lan", cmd)
                 except Exception as e:
@@ -178,7 +189,7 @@ def main():
                     ports_input = input(f"Enter port range (default {config.network.default_ports}): ").strip()
                     ports = ports_input or config.network.default_ports
 
-                    cmd = [sys.executable, "host_scanner.py", "-t", target, "-p", ports]
+                    cmd = [sys.executable, os.path.join(SCRIPT_DIR, "host_scanner.py"), "-t", target, "-p", ports]
 
                     # Add optional features
                     if input("Enable verbose output? (y/n): ").lower() == "y":
