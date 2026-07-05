@@ -1,0 +1,5 @@
+# NetSweep - Development/testing dependencies
+# Install alongside requirements.txt: pip install -r requirements.txt -r requirements-dev.txt
+-r requirements.txt
+
+pytest>=7.4.0
