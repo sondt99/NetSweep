@@ -74,6 +74,68 @@ class TestCheckDeviceAlive:
         assert device_info.check_device_alive("10.0.0.1") is False
 
 
+class FakeCompleted:
+    def __init__(self, stdout: bytes):
+        self.stdout = stdout
+        self.returncode = 0
+
+
+class TestCheckArp:
+    """Regression tests for _check_arp on routed subnets.
+
+    `arp -n <ip>` and `ip neigh show <ip>` both echo the queried IP even when there
+    is no entry, which previously made every dead host on an off-subnet /24 look
+    alive. Aliveness must hinge on a *resolved MAC*, not on the IP appearing.
+    """
+
+    def _fake_run(self, responses):
+        def fake_run(cmd, *args, **kwargs):
+            return FakeCompleted(responses.get(cmd[0], b""))
+        return fake_run
+
+    def _force_linux(self, monkeypatch):
+        monkeypatch.setattr(device_info_module.platform, "system", lambda: "Linux")
+
+    def test_no_entry_output_is_not_alive(self, device_info, monkeypatch):
+        self._force_linux(monkeypatch)
+        monkeypatch.setattr(device_info_module.subprocess, "run", self._fake_run({
+            "ip": b"",  # `ip neigh show` returns nothing for an unresolved routed IP
+            "arp": b"192.168.1.65 (192.168.1.65) -- no entry\n",
+        }))
+        assert device_info._check_arp("192.168.1.65") is False
+
+    def test_resolved_neighbor_mac_is_alive(self, device_info, monkeypatch):
+        self._force_linux(monkeypatch)
+        monkeypatch.setattr(device_info_module.subprocess, "run", self._fake_run({
+            "ip": b"192.168.0.1 dev wlp0s20f3 lladdr a4:2b:8c:11:22:33 REACHABLE\n",
+        }))
+        assert device_info._check_arp("192.168.0.1") is True
+
+    def test_failed_neighbor_state_is_not_alive(self, device_info, monkeypatch):
+        self._force_linux(monkeypatch)
+        monkeypatch.setattr(device_info_module.subprocess, "run", self._fake_run({
+            "ip": b"192.168.0.50 dev wlp0s20f3 lladdr a4:2b:8c:11:22:33 FAILED\n",
+            "arp": b"192.168.0.50 (192.168.0.50) -- no entry\n",
+        }))
+        assert device_info._check_arp("192.168.0.50") is False
+
+    def test_resolved_arp_mac_is_alive(self, device_info, monkeypatch):
+        self._force_linux(monkeypatch)
+        monkeypatch.setattr(device_info_module.subprocess, "run", self._fake_run({
+            "ip": b"",
+            "arp": b"192.168.0.7 (192.168.0.7) at a4:2b:8c:44:55:66 [ether] on wlp0s20f3\n",
+        }))
+        assert device_info._check_arp("192.168.0.7") is True
+
+    def test_broadcast_mac_is_not_alive(self, device_info, monkeypatch):
+        self._force_linux(monkeypatch)
+        monkeypatch.setattr(device_info_module.subprocess, "run", self._fake_run({
+            "ip": b"",
+            "arp": b"192.168.1.255 (192.168.1.255) at ff:ff:ff:ff:ff:ff [ether] on eth0\n",
+        }))
+        assert device_info._check_arp("192.168.1.255") is False
+
+
 class TestScanOpenPorts:
     def test_detects_real_open_port(self, device_info, local_listener):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:

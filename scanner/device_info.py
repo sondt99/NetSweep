@@ -4,6 +4,7 @@ import select
 import selectors
 import requests
 import logging
+import re
 import time
 from typing import Dict, List, Optional
 from getmac import get_mac_address
@@ -134,25 +135,42 @@ class DeviceInfo:
                 except OSError:
                     pass
 
+    # A resolved MAC (aa:bb:cc:dd:ee:ff), used to confirm a real ARP/neighbor entry.
+    _MAC_RE = re.compile(r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}")
+
     def _check_arp(self, ip: str) -> bool:
+        """Return True only when the OS ARP/neighbor table holds a *resolved* MAC for ip.
+
+        We require an actual hardware address rather than trusting that the tool
+        merely echoed the queried IP. Both `arp -n <ip>` and `ip neigh show <ip>`
+        print the IP back even when there is NO entry - e.g.
+        "192.168.1.65 (192.168.1.65) -- no entry" - which used to read as a false
+        "alive" for every dead host on a routed subnet (the room-router case where
+        no ARP reply ever comes back). Matching on a MAC eliminates that.
+        """
+        def _has_real_mac(text: str) -> bool:
+            # Normalize Windows' dash-separated MACs to colon form before matching.
+            match = self._MAC_RE.search(text.replace('-', ':'))
+            return bool(match) and match.group(0).lower() != "ff:ff:ff:ff:ff:ff"
+
         try:
             if platform.system().lower() == "windows":
                 result = subprocess.run(["arp", "-a", ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1)
-                output = result.stdout.decode('utf-8', errors='ignore')
-                return ip in output and "ff-ff-ff-ff-ff-ff" not in output.lower()
+                return _has_real_mac(result.stdout.decode('utf-8', errors='ignore'))
 
-            # Linux/macOS: prefer `ip neigh`, fall back to `arp -n`
+            # Linux/macOS: prefer `ip neigh`, fall back to `arp -n`. A FAILED/INCOMPLETE
+            # neighbor entry means the address never resolved - treat it as not alive.
             try:
                 result = subprocess.run(["ip", "neigh", "show", ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1)
                 output = result.stdout.decode('utf-8', errors='ignore')
-                if output and "incomplete" not in output.lower() and "failed" not in output.lower():
+                lowered = output.lower()
+                if "failed" not in lowered and "incomplete" not in lowered and _has_real_mac(output):
                     return True
             except (FileNotFoundError, subprocess.SubprocessError):
                 pass
 
             result = subprocess.run(["arp", "-n", ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1)
-            output = result.stdout.decode('utf-8', errors='ignore')
-            return ip in output and "no match found" not in output.lower() and "(incomplete)" not in output.lower()
+            return _has_real_mac(result.stdout.decode('utf-8', errors='ignore'))
         except Exception:
             return False
 
