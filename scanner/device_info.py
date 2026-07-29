@@ -231,10 +231,12 @@ class DeviceInfo:
                         time.sleep(retry_delay)
                         continue
 
-            logging.warning(f"Exceeded retry limit for MAC {mac_address}")
+            masked = mac_address[:8] + ":XX:XX:XX" if mac_address and len(mac_address) >= 8 else "REDACTED"
+            logging.warning(f"Exceeded retry limit for MAC {masked}")
             self.vendor_cache[oui] = "Unknown"
             return "Unknown"
 
         except Exception as e:
-            logging.error(f"Unexpected error when getting vendor for MAC {mac_address}: {str(e)}")
+            masked = mac_address[:8] + ":XX:XX:XX" if mac_address and len(mac_address) >= 8 else "REDACTED"
+            logging.error(f"Unexpected error when getting vendor for MAC {masked}: {str(e)}")
             return "Unknown"
