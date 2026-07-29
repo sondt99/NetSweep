@@ -15,6 +15,7 @@ Automatically discover all active devices on your selected network segment with 
 
 **Features:**
 - **Auto Network Detection**: Automatically discovers available network interfaces and segments
+- **Upstream Discovery**: Optionally discover reachable upstream networks beyond the local gateway
 - **Multi-threaded Scanning**: Fast, concurrent device discovery for optimal performance
 - **Comprehensive Device Information**:
   - IP addresses and MAC addresses
@@ -36,32 +37,54 @@ Perform deep analysis of specific targets with advanced reconnaissance capabilit
 - **Comprehensive Service Detection**: HTTP, SSH, FTP, SMTP, and 200+ other services
 - **Automatic JSON Export**: Structured results with detailed scan information
 
+### Advanced Port Scanner (Library)
+A standalone multi-technique port scanner module available for programmatic use.
+
+**Techniques:**
+- **TCP Connect Scan**: Standard three-way handshake (no special privileges required)
+- **SYN Stealth Scan**: Half-open scanning using Scapy (requires root/admin privileges)
+- **UDP Scan**: UDP port scanning using Scapy (requires root/admin privileges)
+
 ---
 
-## Professional Architecture
-
-NetSweep follows a modular, professional architecture designed for maintainability and extensibility:
+## Project Structure
 
 ```
 NetSweep/
 ├── main.py                 # Interactive menu-driven entry point
-├── config.py              # Centralized configuration management
-├── lan_scanner.py         # Local network scanning CLI
-├── host_scanner.py        # Target host scanning CLI
-├── port_scanner.py        # Advanced port scanning with SYN/UDP support
-├── service_detector.py    # Sophisticated service detection
-├── requirements.txt       # Optimized dependencies
-├── README.md             # Professional documentation
-├── scanner/              # Core scanning modules
-│   ├── network_scanner.py # Core LAN scanning logic
-│   ├── device_info.py     # Device detection and vendor identification
-│   └── port_scanner.py    # Network port scanning utilities
-├── utils/                # Utility modules
-│   ├── network_utils.py   # Network interface discovery
-│   ├── system_utils.py    # System utility functions
-│   └── error_handler.py   # Professional error handling system
-└── config/               # Configuration files
-    └── ports.py          # Comprehensive port-to-service mapping
+├── config.py               # Centralized configuration management
+├── lan_scanner.py           # Local network scanning CLI
+├── host_scanner.py          # Target host scanning CLI
+├── port_scanner.py          # Advanced port scanner (SYN/UDP/connect)
+├── service_detector.py      # Sophisticated service detection
+├── requirements.txt         # Production dependencies
+├── requirements-dev.txt     # Development/testing dependencies
+├── LICENSE                  # MIT License
+├── SECURITY.md              # Security policy
+├── README.md                # Documentation
+├── scanner/                 # Core scanning modules
+│   ├── __init__.py
+│   ├── network_scanner.py   # Core LAN scanning logic
+│   └── device_info.py       # Device detection and vendor identification
+├── utils/                   # Utility modules
+│   ├── __init__.py
+│   ├── network_utils.py     # Network interface discovery
+│   ├── system_utils.py      # System utility functions
+│   └── error_handler.py     # Professional error handling system
+├── config/                  # Configuration files
+│   └── ports.py             # Comprehensive port-to-service mapping
+└── tests/                   # Test suite
+    ├── conftest.py
+    ├── test_config.py
+    ├── test_device_info.py
+    ├── test_error_handler.py
+    ├── test_host_scanner.py
+    ├── test_main.py
+    ├── test_network_scanner.py
+    ├── test_network_utils.py
+    ├── test_port_scanner.py
+    ├── test_service_detector.py
+    └── test_system_utils.py
 ```
 
 ### Core Components
@@ -96,7 +119,7 @@ NetSweep/
 
 ```bash
 # Clone the repository
-git clone https://github.com/sondt/NetSweep.git
+git clone https://github.com/sondt99/NetSweep.git
 cd NetSweep
 
 # Install dependencies
@@ -110,18 +133,18 @@ python main.py
 
 ```bash
 # Clone for development
-git clone https://github.com/sondt/NetSweep.git
+git clone https://github.com/sondt99/NetSweep.git
 cd NetSweep
 
 # Create virtual environment (recommended)
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install with development dependencies
-pip install -r requirements.txt
+# Install production + development dependencies
+pip install -r requirements-dev.txt
 
-# Create default configuration
-python config.py --create-config ~/.netsweep/config.json
+# Run tests
+python -m pytest tests/
 ```
 
 ---
@@ -135,26 +158,35 @@ python main.py
 ```
 
 The interactive menu provides:
-- **Option 1**: LAN Scanner for local network discovery
-- **Option 2**: Host Scanner for targeted analysis
-- **Option 3**: Configuration management and monitoring
-- **Option 0**: Exit with session summary
+- **Option 1**: Scan Local Network - Discover all active hosts (local)
+- **Option 2**: Host Scanner - Scan specific hosts (local & remote)
+- **Option 3**: Configuration - View and modify settings
+- **Option 0**: Exit
 
-### **Command Line Usage**
+### Command Line Usage
 
 #### **LAN Scanner**
 ```bash
-# Basic local network scan
+# Basic local network scan (auto-detects network)
 python lan_scanner.py
 
-# Custom configuration
+# Scan a specific network
+python lan_scanner.py -n 192.168.1.0/24
+
+# Discover and scan upstream networks
+python lan_scanner.py --discover-upstream
+
+# Custom configuration with export
 python lan_scanner.py -t 100 -T 0.5 -o json -d results
 
 # Available options:
-# -t, --threads       Number of threads (default: 50)
-# -T, --timeout       Connection timeout (default: 0.5s)
-# -o, --output       Export format: json/csv/txt (default: json)
-# -d, --directory    Output directory (default: scan_results)
+# -n, --network          Network to scan in CIDR format (auto-detected if omitted)
+# --discover-upstream    Auto-discover reachable upstream networks
+# -t, --threads          Number of threads (default: 50)
+# -T, --timeout          Connection timeout in seconds (default: 0.5)
+# --ip-timeout           Maximum time per single IP in seconds (default: 2.0)
+# -o, --output           Export format: json, csv, or txt (no export if omitted)
+# -d, --output-dir       Output directory (default: scan_results)
 ```
 
 #### **Host Scanner**
@@ -165,14 +197,14 @@ python host_scanner.py -t example.com -p 1-1000
 # Advanced scan with all features
 python host_scanner.py -t 192.168.1.1 -p 1-65535 --service-detection --os-detection -v
 
-# Command line options:
-# -t, --target          Target host (IP or domain)
-# -p, --ports          Port range (default: 1-1000)
-# --service-detection  Enable service detection
-# --os-detection       Enable OS fingerprinting
-# -v, --verbose        Verbose output
-# -T, --threads        Number of threads (default: 100)
-# --timeout            Connection timeout (default: 1s)
+# Available options:
+# -t, --target           Target host (IP or domain)
+# -p, --ports            Port range (default: 1-1000)
+# --service-detection    Enable service detection
+# --os-detection         Enable OS fingerprinting
+# -v, --verbose          Verbose output
+# -T, --threads          Number of threads (default: 100)
+# --timeout              Connection timeout in seconds (default: 1.0)
 ```
 
 #### **Configuration Management**
@@ -193,7 +225,7 @@ python config.py --create-config ~/.netsweep/config.json
 
 ### LAN Scanner Results
 ```
-=== NetSweep LAN Scanner ===
+=== Advanced Network Scanner v4.0 ===
 
 Available Networks:
 1. 192.168.1.0/24 (Interface: wlan0) - Private Network
@@ -215,7 +247,7 @@ Network Scan Results:
 +----------------+-------------------+----------------------------+-------------------+---------------------------------------------+
 
 Scan completed in 45.2 seconds
-Results exported to: scan_results/lan_scan_2025-01-15_14-30-22.json
+Results exported to: scan_results/scan_20250115_143022.json
 ```
 
 ### Host Scanner Results
@@ -279,11 +311,11 @@ NetSweep uses a comprehensive configuration system that allows you to customize 
 ```json
 {
   "scan": {
-    "timeout": 0.5,           // Connection timeout in seconds
-    "max_workers": 50,        // Maximum concurrent threads
-    "retry_count": 3,         // Number of retry attempts
-    "banner_grab_timeout": 1.0, // Banner grabbing timeout
-    "scan_delay": 0.1         // Delay between scans (rate limiting)
+    "timeout": 0.5,
+    "max_workers": 50,
+    "retry_count": 3,
+    "banner_grab_timeout": 1.0,
+    "scan_delay": 0.1
   }
 }
 ```
@@ -305,7 +337,7 @@ NetSweep uses a comprehensive configuration system that allows you to customize 
 {
   "output": {
     "default_output_dir": "scan_results",
-    "export_format": "json",    // json, csv, txt
+    "export_format": "json",
     "verbose": false,
     "show_progress": true,
     "table_style": "grid"
@@ -329,32 +361,13 @@ NetSweep uses a comprehensive configuration system that allows you to customize 
 
 ## Advanced Features
 
-### Port Scanning Techniques
-
-NetSweep supports multiple port scanning techniques:
-
-1. **TCP Connect Scan** (Default)
-   - Standard three-way handshake
-   - No special privileges required
-   - Reliable and universally compatible
-
-2. **SYN Stealth Scan** (Advanced)
-   - Half-open scanning technique
-   - Requires root/admin privileges
-   - Stealthier than connect scan
-
-3. **UDP Scan** (Advanced)
-   - UDP port scanning
-   - Requires root/admin privileges
-   - Slower but comprehensive
-
 ### Service Detection
 
 NetSweep includes sophisticated service detection capabilities:
 
 - **Protocol-Specific Detection**: Custom probes for HTTP, SSH, FTP, SMTP, and more
 - **Banner Grabbing**: Extract service banners and version information
-- **SSL/TLS Analysis**: Certificate parsing and validation
+- **SSL/TLS Analysis**: Certificate parsing and validation (TLS 1.2+ enforced)
 - **Version Detection**: Identify specific software versions when possible
 
 ### OS Fingerprinting
@@ -371,7 +384,7 @@ Basic OS detection through:
 
 ### Important Security Considerations
 
-Warning: NetSweep is designed for authorized network testing and educational purposes only.
+**Warning**: NetSweep is designed for authorized network testing and educational purposes only.
 
 #### Legal Usage Guidelines
 - **Authorization Only**: Only scan networks and systems you own or have explicit permission to test
@@ -384,7 +397,7 @@ Warning: NetSweep is designed for authorized network testing and educational pur
 - **Input Validation**: Comprehensive input sanitization and validation
 - **Rate Limiting**: Built-in delays to prevent network overload
 - **Error Handling**: Secure error handling that doesn't expose sensitive information
-- **Logging**: Comprehensive audit logging for accountability
+- **Logging**: Comprehensive audit logging with sensitive data masking
 - **Configuration Security**: Secure configuration management with validation
 
 #### Recommended Best Practices
@@ -398,7 +411,7 @@ Warning: NetSweep is designed for authorized network testing and educational pur
 
 ## Contributing
 
-We welcome contributions to NetSweep! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+We welcome contributions to NetSweep!
 
 ### Development Setup
 
@@ -411,30 +424,23 @@ cd NetSweep
 python -m venv venv
 source venv/bin/activate
 
-# Install in development mode
-pip install -e .
+# Install dependencies
+pip install -r requirements-dev.txt
 
 # Run tests
 python -m pytest tests/
-
-# Run linting
-flake8 netsweep/
-black netsweep/
 ```
 
 ### Code Quality Standards
 
 - **PEP 8 Compliance**: Follow Python style guidelines
 - **Type Hints**: Include type annotations for new code
-- **Documentation**: Comprehensive docstrings for all functions
 - **Error Handling**: Proper exception handling and logging
 - **Testing**: Unit tests for new functionality
 
 ---
 
 ## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 ### Version 4.0-Pro (Current)
 - Professional configuration management system
@@ -454,32 +460,19 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 ---
 
-## API Reference
+## Programmatic Usage
 
-### Python API Usage
-
-NetSweep can be used as a Python library:
+NetSweep modules can be imported directly:
 
 ```python
-from netsweep import NetSweepScanner, NetworkConfig, ScanConfig
-
-# Initialize scanner
-config = ScanConfig(timeout=1.0, max_workers=100)
-scanner = NetSweepScanner(config=config)
-
-# Scan local network
-results = scanner.scan_network("192.168.1.0/24")
-print(f"Found {len(results)} devices")
-
-# Scan specific host
-host_results = scanner.scan_host("192.168.1.1", ports="1-1000")
-print(f"Open ports: {host_results.open_ports}")
+from scanner.network_scanner import NetworkScanner
+from config import ScanConfig, NetworkConfig, get_config
+from utils.error_handler import handle_errors, NetSweepError
 ```
 
 ### Error Handling
 
 ```python
-from netsweep import NetSweepError, NetworkError, ConfigurationError
 from utils.error_handler import handle_errors
 
 @handle_errors(default_return=None, log_context="MyScan")
@@ -496,42 +489,23 @@ def my_scan_function():
 
 #### Permission Denied Errors
 ```bash
-# Solution: Run with appropriate privileges
+# SYN and UDP scans require root privileges
 sudo python main.py
-
-# Or use non-privileged scan methods
-python main.py --no-privilege
 ```
 
 #### Network Interface Not Found
 ```bash
 # Check available interfaces
-python -c "from utils.network_utils import get_network_interfaces; print(get_network_interfaces())"
-
-# Specify interface manually
-python lan_scanner.py --interface wlan0
+python -c "from utils.network_utils import get_local_networks; print(get_local_networks())"
 ```
 
 #### Configuration Issues
 ```bash
-# Reset configuration
-python config.py --reset-config
-
 # Validate configuration
 python config.py --validate
-```
 
-### Debug Mode
-
-Enable debug logging for troubleshooting:
-
-```bash
-# Enable debug logging
-export NETSWEEP_DEBUG=1
-python main.py
-
-# Or specify log file
-python main.py --log-file debug.log --log-level DEBUG
+# Create a fresh default config
+python config.py --create-config ~/.netsweep/config.json
 ```
 
 ---
@@ -540,18 +514,13 @@ python main.py --log-file debug.log --log-level DEBUG
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-### Third-Party Licenses
-
-NetSweep uses several third-party libraries. See [requirements.txt](requirements.txt) and individual library licenses for details.
-
 ---
 
 ## Author
 
-**Developed by: sondt**
-- **GitHub**: [@sondt](https://github.com/sondt)
-- **Email**: sondt@example.com
-- **LinkedIn**: [sondt](https://linkedin.com/in/sondt)
+**Developed by: Thai Son Dinh**
+- **GitHub**: [@sondt99](https://github.com/sondt99)
+- **LinkedIn**: [thaisondinh](https://www.linkedin.com/in/thaisondinh/)
 
 ---
 
@@ -566,10 +535,8 @@ NetSweep uses several third-party libraries. See [requirements.txt](requirements
 
 ## Support & Contact
 
-- **Issues**: [GitHub Issues](https://github.com/sondt/NetSweep/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/sondt/NetSweep/discussions)
-- **Email**: support@netsweep.dev
-- **Documentation**: [NetSweep Docs](https://docs.netsweep.dev)
+- **Issues**: [GitHub Issues](https://github.com/sondt99/NetSweep/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/sondt99/NetSweep/discussions)
 
 ---
 
