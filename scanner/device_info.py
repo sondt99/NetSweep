@@ -231,12 +231,13 @@ class DeviceInfo:
                         time.sleep(retry_delay)
                         continue
 
-            masked = mac_address[:8] + ":XX:XX:XX" if mac_address and len(mac_address) >= 8 else "REDACTED"
-            logging.warning(f"Exceeded retry limit for MAC {masked}")
+            # Do not log MAC addresses (full or partial): CodeQL treats them as
+            # private/sensitive and partial masking does not break taint flow.
+            logging.warning("Exceeded retry limit for MAC vendor lookup")
             self.vendor_cache[oui] = "Unknown"
             return "Unknown"
 
         except Exception as e:
-            masked = mac_address[:8] + ":XX:XX:XX" if mac_address and len(mac_address) >= 8 else "REDACTED"
-            logging.error(f"Unexpected error when getting vendor for MAC {masked}: {str(e)}")
+            # Omit MAC from logs; exception text alone is enough for diagnostics.
+            logging.error("Unexpected error when getting MAC vendor: %s", e)
             return "Unknown"
