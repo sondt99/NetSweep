@@ -1,6 +1,6 @@
 # NetSweep documentation
 
-User and developer documentation for **NetSweep 5.1.x**.
+User and developer documentation for **NetSweep 5.2.x**.
 
 Start with the [project README](../README.md) for a short overview, then use the guides below.
 
