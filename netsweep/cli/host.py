@@ -23,7 +23,7 @@ from netsweep.data.ports import get_service_name as static_service_name
 try:
     from netsweep.__version__ import __version__
 except ImportError:
-    __version__ = "5.1.0"
+    __version__ = "5.2.0"
 
 MAX_THREADS = 500
 MAX_PORTS = 65535

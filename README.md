@@ -2,7 +2,7 @@
 
 **Professional network discovery and host scanning toolkit for Python**
 
-[![Version](https://img.shields.io/badge/version-5.1.0-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-5.2.0-blue)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.8%2B-yellow)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-202%20passed-brightgreen)](tests/)

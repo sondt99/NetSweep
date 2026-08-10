@@ -30,4 +30,4 @@ Start with the [project README](../README.md) for a short overview, then use the
 
 ## Version
 
-Documentation targets **NetSweep 5.1.0** (package-first layout). Behavior from 5.0.x hardening still applies; see the changelog for details.
+Documentation targets **NetSweep 5.2.0** (package-first layout). Behavior from 5.0.x hardening still applies; see the changelog for details.

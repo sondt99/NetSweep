@@ -5,6 +5,31 @@ All notable changes to NetSweep are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.2.0] - 2026-08-11
+
+### Changed
+
+- **Clean repository root**: single launcher `run.py`; all application code under `netsweep/`
+- Removed temporary root compatibility shims (`main.py`, `lan_scanner.py`, `host_scanner.py`,
+  `port_scanner.py`, `service_detector.py`, `config.py`, `scanner/`, `utils/`, `config_data/`)
+
+### Breaking (shim users only)
+
+- Do **not** run `python main.py` / `python lan_scanner.py` / `python host_scanner.py` anymore
+- Use instead:
+  - `python run.py` or `python -m netsweep` or `netsweep`
+  - `netsweep-lan`, `netsweep-host`, `netsweep-sadp`
+  - Library imports: `from netsweep…` only
+
+### Documentation
+
+- README and `docs/` updated for the clean layout and entrypoints
+
+### Notes
+
+- Package API (`netsweep.*`) and console scripts from 5.1.x remain the same
+- Security limits, offline OUI, and in-process menu behavior unchanged from 5.1.0
+
 ## [5.1.0] - 2026-08-11
 
 ### Changed — professional package refactor

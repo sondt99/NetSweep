@@ -7,7 +7,7 @@ from netsweep.logging.errors import get_error_handler, log_info, log_warning, ha
 try:
     from netsweep.__version__ import __version__
 except ImportError:
-    __version__ = "5.1.0"
+    __version__ = "5.2.0"
 
 InputFunc = Callable[[str], str]
 

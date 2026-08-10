@@ -172,7 +172,7 @@ print(get_error_handler().get_error_summary())
 
 ```python
 from netsweep import __version__
-assert __version__ == "5.1.0"  # or current
+assert __version__ == "5.2.0"  # or current
 ```
 
 ## Thread safety notes

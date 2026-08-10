@@ -11,7 +11,7 @@ from netsweep.config import get_config, clamp_threads
 try:
     from netsweep.__version__ import __version__
 except ImportError:
-    __version__ = "5.1.0"
+    __version__ = "5.2.0"
 
 
 def _prompt_custom_network() -> Optional[str]:
