@@ -1,0 +1,38 @@
+name: Documentation
+description: README, SECURITY.md, CHANGELOG, or comment/docstring improvements.
+title: "[docs] "
+labels: ["documentation", "maintainability"]
+body:
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P1 — Misleading security or usage guidance
+        - P2 — Missing or outdated docs
+        - P3 — Typos / polish
+      default: 1
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Document / path
+      placeholder: "README.md, SECURITY.md, docs/..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing?
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested change
+    validations:
+      required: true

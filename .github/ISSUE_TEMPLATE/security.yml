@@ -1,0 +1,88 @@
+name: Security concern (non-critical / process)
+description: Hardening idea, misconfiguration risk, or security documentation issue. For unfixed vulns use private Security Advisory.
+title: "[security] "
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **Do not publish exploit details for unfixed vulnerabilities here.**
+
+        For suspected vulnerabilities in NetSweep itself, open a private
+        [Security Advisory](https://github.com/sondt99/NetSweep/security/advisories/new)
+        and read [SECURITY.md](../SECURITY.md).
+
+        Use this form only for:
+        - hardening suggestions
+        - docs/process gaps
+        - already-public issues
+        - dual-use / abuse UX improvements
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0 — Critical (if already public / needs immediate triage)
+        - P1 — High
+        - P2 — Medium
+        - P3 — Low / informational
+      default: 1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Injection / command safety
+        - Path / file write safety
+        - Secrets in logs or exports
+        - Resource exhaustion / self-DoS
+        - Scope / consent / dual-use UX
+        - Dependency / supply chain
+        - Privilege model (root / capabilities)
+        - Documentation / SECURITY.md process
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Affected version
+      placeholder: "5.0.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What is the risk? Impact on the scanner host or operators?
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: File paths, code references, or safe redacted examples (no live exploit against third parties).
+      render: markdown
+
+  - type: textarea
+    id: remediation
+    attributes:
+      label: Suggested remediation
+      description: Optional fix direction.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: This is not a confidential unfixed vulnerability (those go to private Security Advisory).
+          required: true
+        - label: I am not requesting help to scan or attack systems without authorization.
+          required: true

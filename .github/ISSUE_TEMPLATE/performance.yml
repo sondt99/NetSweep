@@ -1,0 +1,80 @@
+name: Performance issue
+description: Slow scans, high CPU/RAM/FD usage, or inaccurate results under load.
+title: "[perf] "
+labels: ["performance"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us reproduce performance problems with concrete numbers where possible.
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0 — Unusable / self-DoS on normal /24
+        - P1 — Major slowdown or resource spike
+        - P2 — Noticeable but manageable
+        - P3 — Micro-optimization
+      default: 1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: path
+    attributes:
+      label: Scan path
+      options:
+        - LAN scanner
+        - Host scanner
+        - Service detection
+        - Port scanner (connect/SYN/UDP)
+        - Vendor / OUI lookup
+        - Export / reporting
+        - Menu / startup
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: NetSweep version
+      placeholder: "5.0.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, CPU/RAM, network type (home /24, lab, etc.), threads/timeout flags.
+      placeholder: |
+        OS: Ubuntu 24.04
+        Threads: 50
+        Timeout: 0.5s
+        Scope: 192.168.1.0/24 (~20 hosts up)
+    validations:
+      required: true
+
+  - type: textarea
+    id: observation
+    attributes:
+      label: Observed behavior
+      description: Wall-clock time, CPU, memory, open FDs, incomplete results under load.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected / desired performance
+    validations:
+      required: true
+
+  - type: textarea
+    id: profiling
+    attributes:
+      label: Profiling notes (optional)
+      description: py-spy, strace, `ulimit -n`, or comparable tools.

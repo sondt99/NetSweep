@@ -1,0 +1,126 @@
+name: Bug report
+description: Something is broken or behaves incorrectly in NetSweep.
+title: "[bug] "
+labels: ["bug", "correctness"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill out as much as you can.
+        Only scan networks you own or are authorized to test.
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How severe is this for operators?
+      options:
+        - P0 — Critical (crash, data loss, security break, unusable core path)
+        - P1 — High (wrong scan results, major feature broken)
+        - P2 — Medium (workaround exists, limited impact)
+        - P3 — Low (cosmetic, docs, minor UX)
+      default: 1
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: NetSweep version
+      description: Output of `python -c "from __version__ import __version__; print(__version__)"` or release tag.
+      placeholder: "5.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Python version
+      placeholder: "3.12.x"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other / container
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - main menu (main.py)
+        - LAN scanner (lan_scanner / NetworkScanner)
+        - Host scanner (host_scanner)
+        - Service detector
+        - Port scanner (SYN/UDP/connect)
+        - Config
+        - netscan.sh
+        - hikvision_sadp
+        - Tests / CI
+        - Docs
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences describing the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps against a lab target you own.
+      placeholder: |
+        1. python main.py
+        2. Choose option …
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include error messages, traceback, or wrong output (redact IPs/secrets if needed).
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Relevant lines from `logs/netsweep.log` (no session cookies or credentials).
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I only tested against systems/networks I am authorized to scan.
+          required: true
+        - label: I am not reporting an unfixed security vulnerability in public (use Security Advisory instead).
+          required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability (private)
+    url: https://github.com/sondt99/NetSweep/security/advisories/new
+    about: Report security issues privately via GitHub Security Advisories. Do not open a public issue for unfixed vulnerabilities. See SECURITY.md.
+  - name: Discussions / questions
+    url: https://github.com/sondt99/NetSweep/issues
+    about: For general questions, open a blank discussion-style issue only if no template fits after enabling blank issues, or comment on an existing issue.

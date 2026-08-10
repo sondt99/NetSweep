@@ -1,0 +1,67 @@
+name: Feature request
+description: Propose a new feature or enhancement for NetSweep.
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem and the solution you want. Keep dual-use / legal constraints in mind.
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Suggested priority
+      options:
+        - P1 — High value for most users
+        - P2 — Useful for many users
+        - P3 — Nice to have
+      default: 1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - LAN discovery
+        - Host / port scanning
+        - Service / banner detection
+        - Export / reporting
+        - Config / CLI / UX
+        - Performance
+        - Security / hardening
+        - Packaging / CI
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this solve? Who is affected?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should NetSweep behave after the change?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches, workarounds, or tools you already use.
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Mockups, API sketches, related issues/PRs.
