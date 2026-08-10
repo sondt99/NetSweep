@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from config import (
+from netsweep.config import (
     ConfigManager,
     NetSweepConfig,
     NetworkConfig,

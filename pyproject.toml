@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netsweep"
-version = "5.0.0"
+version = "5.1.0"
 description = "Professional network discovery and host scanning toolkit"
 readme = "README.md"
 license = { text = "MIT" }
@@ -24,20 +24,13 @@ scapy = ["scapy>=2.4.5"]
 dev = ["pytest>=7.0.0", "pytest-cov>=4.0.0"]
 
 [project.scripts]
-netsweep = "main:main"
+netsweep = "netsweep.cli.menu:main"
+netsweep-lan = "netsweep.cli.lan:main"
+netsweep-host = "netsweep.cli.host:main"
+netsweep-sadp = "netsweep.cli.sadp:main"
 
-[tool.setuptools]
-py-modules = [
-    "main",
-    "config",
-    "host_scanner",
-    "lan_scanner",
-    "port_scanner",
-    "service_detector",
-    "hikvision_sadp",
-    "__version__",
-]
-packages = ["scanner", "utils", "config_data"]
+[tool.setuptools.packages.find]
+include = ["netsweep*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

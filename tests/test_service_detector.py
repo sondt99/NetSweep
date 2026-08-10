@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from service_detector import ServiceDetector
+from netsweep.scan.service import ServiceDetector
 
 
 @pytest.fixture

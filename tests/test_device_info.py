@@ -5,8 +5,8 @@ import threading
 import pytest
 import requests
 
-import scanner.device_info as device_info_module
-from scanner.device_info import DeviceInfo
+import netsweep.scan.device as device_info_module
+from netsweep.scan.device import DeviceInfo
 
 
 @pytest.fixture

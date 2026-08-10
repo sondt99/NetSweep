@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from scanner.network_scanner import NetworkScanner, DISCOVERY_PORT_SERVICES
+from netsweep.scan.network import NetworkScanner, DISCOVERY_PORT_SERVICES
 
 
 @pytest.fixture

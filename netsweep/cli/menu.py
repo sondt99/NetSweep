@@ -1,0 +1,323 @@
+import os
+import sys
+import subprocess
+from typing import Callable, List, Optional, Union
+from netsweep.config import get_config, get_config_manager
+from netsweep.logging.errors import get_error_handler, log_info, log_warning, handle_errors
+try:
+    from netsweep.__version__ import __version__
+except ImportError:
+    __version__ = "5.1.0"
+
+InputFunc = Callable[[str], str]
+
+# Resolve scanner scripts relative to this file rather than the process's cwd, so
+# the menu still works when main.py is launched from outside the repo directory
+# (e.g. `python3 /path/to/NetSweep/main.py`) instead of `cd NetSweep && python main.py`.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def banner() -> None:
+    """Display the application banner"""
+    print(r"""
+            _
+           | |
+ _ __   ___| |_   ___  ___ __ _ _ __  _ __   ___ _ __
+| '_ \ / _ \ __| / __|/ __/ _` | '_ \| '_ \ / _ \ '__|
+| | | |  __/ |_  \__ \ (_| (_| | | | | | | |  __/ |
+|_| |_|\___|\__| |___/\___\__,_|_| |_|_| |_|\___|_|
+
+    """)
+    print(f"NetSweep v{__version__}")
+    print("Developed by: sondt\n")
+
+
+def _resolve_numeric_arg(
+    raw_input: str,
+    default: Union[int, float],
+    cast: Callable[[str], Union[int, float]],
+    invalid_msg: str,
+    non_positive_msg: str,
+) -> Optional[Union[int, float]]:
+    """Resolve a numeric CLI flag value from raw prompt input.
+
+    Returns the default when raw_input is blank, the parsed value when valid and
+    positive, or None (flag omitted) when invalid/non-positive - matching the
+    original prompt behavior where a bad value skips the flag instead of falling
+    back to the default.
+    """
+    if not raw_input:
+        return default
+    try:
+        value = cast(raw_input)
+    except ValueError:
+        log_warning(invalid_msg)
+        return None
+    if value <= 0:
+        log_warning(non_positive_msg)
+        return None
+    return value
+
+
+def _resolve_output_format(raw_input: str, default: str) -> str:
+    """Resolve the export format from raw prompt input, falling back to default."""
+    if raw_input in ("json", "csv", "txt"):
+        return raw_input
+    if raw_input != "":
+        log_warning("Invalid output format, using default")
+    return default
+
+
+def _resolve_verbose_flag(raw_input: str, default_verbose: bool) -> bool:
+    """Resolve whether verbose output should be enabled from raw prompt input."""
+    if raw_input == "y":
+        return True
+    if raw_input == "n":
+        return False
+    return raw_input == "" and default_verbose
+
+
+def build_args_common(input_func: InputFunc = input) -> List[str]:
+    """Build common arguments based on user input and configuration.
+
+    Returns a list of argv tokens (not a joined string) so that values containing
+    whitespace - e.g. a custom output directory like "my scan results" - survive
+    intact instead of being re-split into extra positional arguments downstream.
+    """
+    config = get_config()
+
+    args = []
+
+    # Threads
+    threads_input = input_func(f"Set threads (default {config.scan.max_workers}, Enter to skip): ")
+    threads = _resolve_numeric_arg(
+        threads_input, config.scan.max_workers, int,
+        "Invalid thread count, using default",
+        "Thread count must be positive, using default",
+    )
+    if threads is not None:
+        args.extend(["-t", str(threads)])
+
+    # Timeout
+    timeout_input = input_func(f"Set timeout (default {config.scan.timeout}s, Enter to skip): ")
+    timeout = _resolve_numeric_arg(
+        timeout_input, config.scan.timeout, float,
+        "Invalid timeout value, using default",
+        "Timeout must be positive, using default",
+    )
+    if timeout is not None:
+        args.extend(["-T", str(timeout)])
+
+    # Output format
+    output_input = input_func(f"Export format? (json/csv/txt, default {config.output.export_format}, Enter to skip): ").lower()
+    args.extend(["-o", _resolve_output_format(output_input, config.output.export_format)])
+
+    # Output directory
+    output_dir_input = input_func(f"Output directory (default {config.output.default_output_dir}, Enter to skip): ")
+    args.extend(["-d", output_dir_input or config.output.default_output_dir])
+
+    # Verbose output
+    verbose_input = input_func(f"Enable verbose output? (y/n, default {'y' if config.output.verbose else 'n'}): ").lower()
+    if _resolve_verbose_flag(verbose_input, config.output.verbose):
+        args.append("-v")
+
+    return args
+
+
+@handle_errors(default_return=None, reraise=True)
+def execute_scanner(scanner_type: str, cmd: list) -> None:
+    """Run a scanner in-process.
+
+    ``cmd`` may be either:
+    - a full argv list beginning with an executable and optional script path
+      (legacy menu form: [python, script.py, flags...]), or
+    - flags only (modern form).
+
+    Args:
+        scanner_type: 'lan' or 'host'
+        cmd: argv-style list
+    """
+    from netsweep.cli import lan as lan_cli
+    from netsweep.cli import host as host_cli
+
+    # Strip leading python + script path if present (legacy submenu form)
+    args = list(cmd)
+    if args and (args[0].endswith("python") or args[0].endswith("python3") or "python" in os.path.basename(args[0])):
+        args = args[1:]
+    if args and args[0].endswith(".py"):
+        args = args[1:]
+
+    log_info(f"Executing {scanner_type} scanner in-process: {' '.join(args)}")
+    try:
+        if scanner_type == "lan":
+            lan_cli.run_from_argv(args)
+        elif scanner_type == "host":
+            host_cli.run_from_argv(args)
+        else:
+            raise ValueError(f"Unknown scanner type: {scanner_type}")
+        log_info(f"{scanner_type.capitalize()} scanner completed successfully")
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else (1 if e.code else 0)
+        if code not in (0, None):
+            handler = get_error_handler()
+            handler.log_warning(f"{scanner_type.capitalize()} scanner exited with code {code}")
+            raise
+
+
+@handle_errors(default_return=None, reraise=False)
+def main():
+    """Main application entry point with professional error handling"""
+    # Initialize error handler and configuration
+    config = get_config()
+    handler = get_error_handler()
+
+    log_info("NetSweep - Professional Network Scanner")
+    log_info("Configuration loaded successfully")
+
+    banner()
+
+    while True:
+        try:
+            print("=== NetSweep Main Menu ===")
+            print("1. Scan Local Network - Discover all active hosts (local)")
+            print("2. Host Scanner - Scan specific hosts (local & remote)")
+            print("3. Configuration - View and modify settings")
+            print("0. Exit")
+
+            choice = input("Your choice: ").strip()
+
+            if choice == "1":
+                log_info("User selected LAN Scanner")
+                try:
+                    args = build_args_common()
+                    cmd = [sys.executable, os.path.join(SCRIPT_DIR, "lan_scanner.py")] + args
+                    print(f"Running: {' '.join(cmd)}")
+                    execute_scanner("lan", cmd)
+                except Exception as e:
+                    handler.handle_error(e, "LAN Scanner execution")
+                    print(f"Error running LAN scanner. Check logs for details.")
+
+            elif choice == "2":
+                log_info("User selected Host Scanner")
+                try:
+                    target = input("Enter target (IP or domain): ").strip()
+                    if not target:
+                        print("Error: Target is required")
+                        continue
+
+                    ports_input = input(f"Enter port range (default {config.network.default_ports}): ").strip()
+                    ports = ports_input or config.network.default_ports
+
+                    cmd = [
+                        sys.executable,
+                        os.path.join(SCRIPT_DIR, "host_scanner.py"),
+                        "-t", target,
+                        "-p", ports,
+                        "--timeout", str(config.scan.timeout),
+                        "--threads", str(config.scan.max_workers),
+                    ]
+
+                    # Add optional features
+                    if input("Enable verbose output? (y/n): ").lower() == "y":
+                        cmd.append("-v")
+                    if input("Enable OS detection? (y/n): ").lower() == "y":
+                        cmd.append("--os-detection")
+                    if input("Enable Service detection? (y/n): ").lower() == "y":
+                        cmd.append("--service-detection")
+
+                    print(f"Running: {' '.join(cmd)}")
+                    execute_scanner("host", cmd)
+                except Exception as e:
+                    handler.handle_error(e, "Host Scanner execution")
+                    print(f"Error running host scanner. Check logs for details.")
+
+            elif choice == "3":
+                log_info("User selected Configuration")
+                try:
+                    config = show_configuration_menu(config, handler) or get_config()
+                except Exception as e:
+                    handler.handle_error(e, "Configuration menu")
+                    print("Error in configuration menu. Check logs for details.")
+
+            elif choice == "0":
+                log_info("User requested exit")
+                print("Goodbye!")
+                # Show error summary if there were any errors
+                summary = handler.get_error_summary()
+                if summary['total_errors'] > 0:
+                    print(f"\nSession Summary: {summary['total_errors']} errors encountered")
+                    print("Check logs for detailed information.")
+                break
+
+            else:
+                print("Invalid choice! Please select again.")
+
+        except KeyboardInterrupt:
+            print("\n\nOperation cancelled by user.")
+            log_info("User interrupted with Ctrl+C")
+            break
+        except Exception as e:
+            handler.handle_error(e, "Main menu loop")
+            print("An unexpected error occurred. Check logs for details.")
+
+
+def show_configuration_menu(config, handler):
+    """Display configuration menu options.
+
+    Args:
+        config: Current NetSweepConfig snapshot (refreshed after reset)
+        handler: Error handler instance
+
+    Returns:
+        Possibly updated NetSweepConfig after reset
+    """
+    while True:
+        print("\n=== Configuration Menu ===")
+        print("1. View current configuration")
+        print("2. Show error summary")
+        print("3. Reset configuration to defaults")
+        print("0. Back to main menu")
+
+        choice = input("Your choice: ").strip()
+
+        if choice == "1":
+            print("\nCurrent Configuration:")
+            print(f"  - Scan timeout: {config.scan.timeout}s")
+            print(f"  - Max workers: {config.scan.max_workers}")
+            print(f"  - Max scan targets: {config.security.max_scan_targets}")
+            print(f"  - Max concurrent connections: {config.security.max_concurrent_connections}")
+            print(f"  - Default port range: {config.network.default_ports}")
+            print(f"  - Output format: {config.output.export_format}")
+            print(f"  - Verbose output: {config.output.verbose}")
+            print(f"  - Output directory: {config.output.default_output_dir}")
+            print(f"  - Online vendor lookup: {getattr(config.security, 'online_vendor_lookup', False)}")
+
+        elif choice == "2":
+            summary = handler.get_error_summary()
+            print(f"\nError Summary:")
+            print(f"  - Total errors: {summary['total_errors']}")
+            if summary['error_types']:
+                print("  - Error types:")
+                for error_type, count in summary['error_types'].items():
+                    print(f"    * {error_type}: {count}")
+
+        elif choice == "3":
+            if input("Reset configuration to defaults? (y/n): ").lower() == "y":
+                manager = get_config_manager()
+                manager.reset_to_defaults()
+                manager.save_config()
+                config = manager.get_config()
+                log_info("Configuration reset to defaults and saved")
+                print("Configuration reset to defaults and saved.")
+
+        elif choice == "0":
+            break
+
+        else:
+            print("Invalid choice! Please select again.")
+
+    return config
+
+
+if __name__ == "__main__":
+    main()

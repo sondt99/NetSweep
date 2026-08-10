@@ -3,12 +3,12 @@ import ipaddress
 
 import pytest
 
-import main
-from config import get_config_manager, SecurityConfig
-from host_scanner import parse_port_range
-from service_detector import redact_banner, MAX_BANNER_BYTES
-from scanner.network_scanner import _count_scan_hosts, NetworkScanner
-from utils.oui_db import lookup_oui_offline
+import netsweep.cli.menu as main
+from netsweep.config import get_config_manager, SecurityConfig
+from netsweep.cli.host import parse_port_range
+from netsweep.scan.service import redact_banner, MAX_BANNER_BYTES
+from netsweep.scan.network import _count_scan_hosts, NetworkScanner
+from netsweep.data.oui import lookup_oui_offline
 
 
 class TestConfigResetMenu:

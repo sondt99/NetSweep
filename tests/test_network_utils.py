@@ -1,8 +1,8 @@
 """Unit tests for utils/network_utils.py."""
 import socket
 
-import utils.network_utils as network_utils_module
-from utils.network_utils import get_local_ip, get_local_networks, get_upstream_networks
+import netsweep.net.interfaces as network_utils_module
+from netsweep.net.interfaces import get_local_ip_str as get_local_ip, get_local_networks, get_upstream_networks
 
 
 class FakeSocket:

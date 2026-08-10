@@ -1,4 +1,2 @@
-"""NetSweep version information."""
-
-__version__ = "5.0.0"
-__version_info__ = (5, 0, 0)
+"""Shim version."""
+from netsweep.__version__ import __version__, __version_info__  # noqa: F401

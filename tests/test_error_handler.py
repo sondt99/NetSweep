@@ -1,7 +1,7 @@
 """Unit tests for utils/error_handler.py."""
 import pytest
 
-from utils.error_handler import (
+from netsweep.logging.errors import (
     ConfigurationError,
     ErrorHandler,
     ErrorSeverity,

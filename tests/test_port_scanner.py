@@ -4,7 +4,8 @@ import threading
 
 import pytest
 
-from port_scanner import PortScanner
+from netsweep.scan.ports import PortScanner
+import netsweep.scan.ports as port_scanner
 
 
 @pytest.fixture
@@ -123,7 +124,7 @@ class TestSynScanPort:
     """_syn_scan_port drives scapy's sr1(); mocked here to avoid requiring root."""
 
     def test_syn_ack_marks_port_open(self, monkeypatch):
-        import port_scanner as ps_module
+        import netsweep.scan.ports as ps_module
 
         responses = iter([FakeResponse(tcp=FakeTcpLayer(flags=0x12)), FakeResponse(tcp=FakeTcpLayer(flags=0))])
         monkeypatch.setattr(ps_module, "sr1", lambda *a, **k: next(responses))
@@ -133,7 +134,7 @@ class TestSynScanPort:
         assert (port, status) == (80, "open")
 
     def test_rst_ack_marks_port_closed(self, monkeypatch):
-        import port_scanner as ps_module
+        import netsweep.scan.ports as ps_module
 
         monkeypatch.setattr(ps_module, "sr1", lambda *a, **k: FakeResponse(tcp=FakeTcpLayer(flags=0x14)))
 
@@ -142,7 +143,7 @@ class TestSynScanPort:
         assert (port, status) == (81, "closed")
 
     def test_no_response_marks_port_filtered(self, monkeypatch):
-        import port_scanner as ps_module
+        import netsweep.scan.ports as ps_module
 
         monkeypatch.setattr(ps_module, "sr1", lambda *a, **k: None)
 
@@ -151,7 +152,7 @@ class TestSynScanPort:
         assert (port, status) == (82, "filtered")
 
     def test_icmp_unreachable_marks_port_filtered(self, monkeypatch):
-        import port_scanner as ps_module
+        import netsweep.scan.ports as ps_module
 
         monkeypatch.setattr(ps_module, "sr1", lambda *a, **k: FakeResponse(icmp=FakeIcmpLayer(3, 1)))
 
@@ -171,7 +172,7 @@ class TestUdpScanPort:
     """
 
     def test_no_response_marks_open_or_filtered(self, monkeypatch):
-        import port_scanner as ps_module
+        import netsweep.scan.ports as ps_module
 
         monkeypatch.setattr(ps_module, "sr1", lambda *a, **k: None)
 
@@ -180,7 +181,7 @@ class TestUdpScanPort:
         assert (port, status) == (53, "open|filtered")
 
     def test_icmp_port_unreachable_marks_closed(self, monkeypatch):
-        import port_scanner as ps_module
+        import netsweep.scan.ports as ps_module
 
         monkeypatch.setattr(ps_module, "sr1", lambda *a, **k: FakeResponse(icmp=FakeIcmpLayer(3, 3)))
 
@@ -189,7 +190,7 @@ class TestUdpScanPort:
         assert (port, status) == (54, "closed")
 
     def test_icmp_other_unreachable_marks_filtered(self, monkeypatch):
-        import port_scanner as ps_module
+        import netsweep.scan.ports as ps_module
 
         monkeypatch.setattr(ps_module, "sr1", lambda *a, **k: FakeResponse(icmp=FakeIcmpLayer(3, 1)))
 
@@ -198,7 +199,7 @@ class TestUdpScanPort:
         assert (port, status) == (55, "filtered")
 
     def test_any_other_response_marks_open(self, monkeypatch):
-        import port_scanner as ps_module
+        import netsweep.scan.ports as ps_module
 
         monkeypatch.setattr(ps_module, "sr1", lambda *a, **k: FakeResponse())
 
@@ -209,7 +210,7 @@ class TestUdpScanPort:
     def test_udp_layer_is_actually_built(self, monkeypatch):
         # Directly confirms the NameError bug is gone: constructing the probe
         # packet (which references UDP) must not raise.
-        import port_scanner as ps_module
+        import netsweep.scan.ports as ps_module
 
         captured = {}
 
@@ -226,7 +227,7 @@ class TestUdpScanPort:
 class TestUdpScanAggregation:
     def test_confirmed_open_not_marked_closed(self, monkeypatch):
         """Regression: status 'open' used to fall into closed_ports."""
-        import port_scanner as ps_module
+        import netsweep.scan.ports as ps_module
 
         monkeypatch.setattr(
             PortScanner,

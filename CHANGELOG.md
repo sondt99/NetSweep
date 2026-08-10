@@ -5,6 +5,22 @@ All notable changes to NetSweep are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.1.0] - 2026-08-11
+
+### Changed — professional package refactor
+
+- Introduced installable **`netsweep`** package with layered layout:
+  `cli` → `scan` → `net` / `config` / `policy` / `data` / `logging` / `report`
+- Interactive menu runs scanners **in-process** (no subprocess hop)
+- Shared **scope policy** (`netsweep.policy.scope`) for LAN and host confirmation
+- Unified networking helpers under `netsweep.net.interfaces`
+- Console scripts: `netsweep`, `netsweep-lan`, `netsweep-host`, `netsweep-sadp`
+- Root modules remain **backward-compatible shims** for tests and old imports
+
+### Documentation
+
+- README package layout and library usage notes
+
 ## [5.0.0] - 2026-08-11
 
 Hardening release from a multi-agent architecture, correctness, QA, and

@@ -2,7 +2,7 @@
 
 Python Version: 3.7+
 License: MIT
-Version: 5.0.0
+Version: 5.1.0
 
 > **NetSweep** is a comprehensive, professional-grade network scanning tool written in Python. Designed as an alternative to Nmap, it combines powerful functionality with an intuitive interface for both educational and authorized network auditing purposes.
 
@@ -442,7 +442,7 @@ python -m pytest tests/
 
 ## Changelog
 
-### Version 5.0.0 (Current)
+### Version 5.1.0 (Current)
 - Professional configuration management system
 - Advanced error handling and logging
 - Improved security and input validation
@@ -509,6 +509,40 @@ python config.py --create-config ~/.netsweep/config.json
 ```
 
 ---
+
+
+
+## Package layout (v5.1+)
+
+NetSweep is organized as an installable package:
+
+```text
+netsweep/
+  cli/          # menu, lan, host, sadp entrypoints
+  scan/         # NetworkScanner, DeviceInfo, PortScanner, ServiceDetector
+  config/       # ConfigManager + dataclasses
+  net/          # interfaces, connection budget, upstream discovery
+  policy/       # scope / confirmation
+  data/         # ports map, offline OUI
+  logging/      # ErrorHandler
+  report/       # export helpers
+```
+
+```bash
+pip install -e ".[dev]"
+python -m netsweep          # interactive menu
+netsweep-lan -n 192.168.1.0/24
+netsweep-host -t 192.168.1.1 -p 1-1000
+```
+
+Library use:
+
+```python
+from netsweep import NetworkScanner, PortScanner, ServiceDetector, get_config
+```
+
+Root scripts (`main.py`, `lan_scanner.py`, …) remain as thin shims for compatibility.
+
 
 ## License
 

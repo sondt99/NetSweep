@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-import host_scanner as hs
+import netsweep.cli.host as hs
 
 
 @pytest.fixture

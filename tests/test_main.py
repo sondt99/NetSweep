@@ -4,8 +4,8 @@ import subprocess
 
 import pytest
 
-import main
-from config import get_config
+import netsweep.cli.menu as main
+from netsweep.config import get_config
 
 
 @pytest.fixture
@@ -103,40 +103,40 @@ class TestBuildArgsCommon:
 
 
 class TestExecuteScanner:
-    def test_success_returns_completed_process(self, monkeypatch):
+    def test_success_runs_lan_in_process(self, monkeypatch):
         captured = {}
 
-        def fake_run(cmd, check, capture_output, text):
-            captured["cmd"] = cmd
-            return subprocess.CompletedProcess(cmd, returncode=0)
+        def fake_lan(argv):
+            captured["argv"] = list(argv)
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        result = main.execute_scanner("lan", ["python3", "lan_scanner.py"])
-        assert result.returncode == 0
-        assert captured["cmd"] == ["python3", "lan_scanner.py"]
+        import netsweep.cli.lan as lan_cli
 
-    def test_called_process_error_is_reraised(self, monkeypatch):
-        def fake_run(cmd, check, capture_output, text):
-            raise subprocess.CalledProcessError(returncode=1, cmd=cmd)
+        monkeypatch.setattr(lan_cli, "run_from_argv", fake_lan)
+        main.execute_scanner("lan", ["python3", "lan_scanner.py", "-n", "127.0.0.0/30"])
+        assert captured["argv"] == ["-n", "127.0.0.0/30"]
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        with pytest.raises(subprocess.CalledProcessError):
-            main.execute_scanner("host", ["python3", "host_scanner.py"])
+    def test_host_in_process(self, monkeypatch):
+        captured = {}
 
-    def test_missing_scanner_script_raises_file_not_found(self, monkeypatch):
-        def fake_run(cmd, check, capture_output, text):
-            raise FileNotFoundError()
+        def fake_host(argv):
+            captured["argv"] = list(argv)
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        with pytest.raises(FileNotFoundError):
-            main.execute_scanner("lan", ["python3", "missing_scanner.py"])
+        import netsweep.cli.host as host_cli
+
+        monkeypatch.setattr(host_cli, "run_from_argv", fake_host)
+        main.execute_scanner("host", ["python3", "host_scanner.py", "-t", "127.0.0.1"])
+        assert captured["argv"] == ["-t", "127.0.0.1"]
+
+    def test_unknown_scanner_type_raises(self):
+        with pytest.raises(ValueError, match="Unknown scanner"):
+            main.execute_scanner("nope", [])
 
 
 class TestScriptDirResolution:
-    def test_script_dir_points_at_the_repo_containing_the_scanners(self):
-        # Regression test: main.py used to invoke bare "lan_scanner.py" /
-        # "host_scanner.py" (relative to the process's cwd), which broke as
-        # soon as main.py was launched from any other working directory.
-        # SCRIPT_DIR anchors those paths to main.py's own location instead.
-        assert os.path.isfile(os.path.join(main.SCRIPT_DIR, "lan_scanner.py"))
-        assert os.path.isfile(os.path.join(main.SCRIPT_DIR, "host_scanner.py"))
+    def test_script_dir_is_cli_package_dir(self):
+        # After package refactor, scanners run in-process; SCRIPT_DIR points at
+        # the netsweep.cli package directory (legacy path anchors retained).
+        assert os.path.isdir(main.SCRIPT_DIR)
+        assert os.path.isfile(os.path.join(main.SCRIPT_DIR, "menu.py"))
+        assert os.path.isfile(os.path.join(main.SCRIPT_DIR, "lan.py"))
+        assert os.path.isfile(os.path.join(main.SCRIPT_DIR, "host.py"))

@@ -10,7 +10,7 @@ PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-import utils.error_handler as error_handler_module  # noqa: E402 (needs sys.path set up above)
+import netsweep.logging.errors as error_handler_module  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
