@@ -19,7 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
-- README package layout and library usage notes
+- Full **README.md** rewrite for package-first install, CLI, security, and library use
+- New **`docs/`** site: installation, quickstart, CLI, configuration, library API,
+  architecture, scanning, security, performance, testing, experimental tools, FAQ,
+  contributing
 
 ## [5.0.0] - 2026-08-11
 
