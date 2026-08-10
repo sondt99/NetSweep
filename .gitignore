@@ -1,6 +1,52 @@
+# Byte-compiled / cache
 __pycache__/
-*.pyc
-/results
-/scan_results
+*.py[cod]
+*$py.class
+*.so
+.Python
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .coverage
+htmlcov/
+.tox/
+.nox/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# NetSweep runtime artifacts (may contain topology / session data)
+logs/
+*.log
+/results/
+/scan_results/
+results/
+scan_results/
+netscan_report_*.txt
+netscan_report_*.csv
+*.xml
+
+# Local config / secrets
+.netsweep/
+.env
+.env.*
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# OS
+.DS_Store
+Thumbs.db

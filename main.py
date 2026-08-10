@@ -2,8 +2,12 @@ import os
 import sys
 import subprocess
 from typing import Callable, List, Optional, Union
-from config import get_config
+from config import get_config, get_config_manager
 from utils.error_handler import get_error_handler, log_info, log_warning, handle_errors
+try:
+    from __version__ import __version__
+except ImportError:
+    __version__ = "5.0.0"
 
 InputFunc = Callable[[str], str]
 
@@ -24,6 +28,7 @@ def banner() -> None:
 |_| |_|\___|\__| |___/\___\__,_|_| |_|_| |_|\___|_|
 
     """)
+    print(f"NetSweep v{__version__}")
     print("Developed by: sondt\n")
 
 
@@ -189,7 +194,14 @@ def main():
                     ports_input = input(f"Enter port range (default {config.network.default_ports}): ").strip()
                     ports = ports_input or config.network.default_ports
 
-                    cmd = [sys.executable, os.path.join(SCRIPT_DIR, "host_scanner.py"), "-t", target, "-p", ports]
+                    cmd = [
+                        sys.executable,
+                        os.path.join(SCRIPT_DIR, "host_scanner.py"),
+                        "-t", target,
+                        "-p", ports,
+                        "--timeout", str(config.scan.timeout),
+                        "--threads", str(config.scan.max_workers),
+                    ]
 
                     # Add optional features
                     if input("Enable verbose output? (y/n): ").lower() == "y":
@@ -208,7 +220,7 @@ def main():
             elif choice == "3":
                 log_info("User selected Configuration")
                 try:
-                    show_configuration_menu(config, handler)
+                    config = show_configuration_menu(config, handler) or get_config()
                 except Exception as e:
                     handler.handle_error(e, "Configuration menu")
                     print("Error in configuration menu. Check logs for details.")
@@ -236,11 +248,14 @@ def main():
 
 
 def show_configuration_menu(config, handler):
-    """Display configuration menu options
+    """Display configuration menu options.
 
     Args:
-        config: Current configuration instance
+        config: Current NetSweepConfig snapshot (refreshed after reset)
         handler: Error handler instance
+
+    Returns:
+        Possibly updated NetSweepConfig after reset
     """
     while True:
         print("\n=== Configuration Menu ===")
@@ -255,10 +270,13 @@ def show_configuration_menu(config, handler):
             print("\nCurrent Configuration:")
             print(f"  - Scan timeout: {config.scan.timeout}s")
             print(f"  - Max workers: {config.scan.max_workers}")
+            print(f"  - Max scan targets: {config.security.max_scan_targets}")
+            print(f"  - Max concurrent connections: {config.security.max_concurrent_connections}")
             print(f"  - Default port range: {config.network.default_ports}")
             print(f"  - Output format: {config.output.export_format}")
             print(f"  - Verbose output: {config.output.verbose}")
             print(f"  - Output directory: {config.output.default_output_dir}")
+            print(f"  - Online vendor lookup: {getattr(config.security, 'online_vendor_lookup', False)}")
 
         elif choice == "2":
             summary = handler.get_error_summary()
@@ -271,15 +289,20 @@ def show_configuration_menu(config, handler):
 
         elif choice == "3":
             if input("Reset configuration to defaults? (y/n): ").lower() == "y":
-                config.reset_to_defaults()
-                log_info("Configuration reset to defaults")
-                print("Configuration reset to defaults.")
+                manager = get_config_manager()
+                manager.reset_to_defaults()
+                manager.save_config()
+                config = manager.get_config()
+                log_info("Configuration reset to defaults and saved")
+                print("Configuration reset to defaults and saved.")
 
         elif choice == "0":
             break
 
         else:
             print("Invalid choice! Please select again.")
+
+    return config
 
 
 if __name__ == "__main__":

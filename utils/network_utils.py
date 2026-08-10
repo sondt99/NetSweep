@@ -38,18 +38,23 @@ def get_local_networks() -> List[Dict[str, str]]:
                             'interface': friendly_name,
                             'network': str(cidr)
                         })
-                    except:
+                    except (ValueError, TypeError):
                         pass
     
     return networks
 
 def get_interface_friendly_names() -> Dict[str, str]:
-    """Get mapping between interface IDs and their friendly names (Windows)"""
+    """Get mapping between interface IDs and their friendly names (Windows only)."""
     interface_names = {}
-    
+
+    if platform.system().lower() != "windows":
+        return interface_names
+
     try:
-        # Run ipconfig /all command to get interface information
-        output = subprocess.check_output("ipconfig /all", shell=True).decode('utf-8', errors='ignore')
+        # Run ipconfig /all (Windows only; argv list, no shell)
+        output = subprocess.check_output(
+            ["ipconfig", "/all"], shell=False
+        ).decode('utf-8', errors='ignore')
         
         # Parse the output to extract interface names and their descriptions
         sections = re.split(r'\r?\n\r?\n', output)
@@ -80,15 +85,19 @@ def get_interface_friendly_names() -> Dict[str, str]:
 
 def get_local_ip() -> str:
     """Get local IP address"""
+    s = None
     try:
-        # This creates a socket that doesn't actually connect to anything
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))  # Google's DNS server
-        local_ip = s.getsockname()[0]
-        s.close()
-        return local_ip
-    except:
+        return s.getsockname()[0]
+    except OSError:
         return "127.0.0.1"  # Fallback to localhost
+    finally:
+        if s is not None:
+            try:
+                s.close()
+            except OSError:
+                pass
 
 
 def _trace_route(target: str, max_hops: int) -> Optional[str]:

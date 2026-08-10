@@ -10,6 +10,31 @@ import time
 import json
 import os
 from typing import Any, Dict, List, Optional, Tuple
+import re as _re_mod
+
+MAX_BANNER_BYTES = 4096
+SENSITIVE_HEADER_RE = _re_mod.compile(
+    r"(?im)^(set-cookie|authorization|proxy-authorization|cookie)\s*:\s*[^\r\n]*"
+)
+
+
+def redact_banner(banner: str) -> str:
+    """Redact sensitive HTTP headers and cap length for safe export/logging."""
+    if not banner:
+        return banner
+    redacted = SENSITIVE_HEADER_RE.sub(
+        lambda m: m.group(0).split(":", 1)[0] + ": [REDACTED]", banner
+    )
+    # Prefer headers-only for HTTP responses (CRLF / LF / mixed)
+    if redacted.lstrip().upper().startswith("HTTP/"):
+        for sep in ("\r\n\r\n", "\n\r\n", "\n\n", "\r\r"):
+            if sep in redacted:
+                redacted = redacted.split(sep, 1)[0]
+                break
+    if len(redacted) > MAX_BANNER_BYTES:
+        redacted = redacted[:MAX_BANNER_BYTES] + "...[truncated]"
+    return redacted
+
 
 class ServiceDetector:
     """Detects the service, version, and (for SSL ports) certificate running on a port."""
@@ -18,6 +43,7 @@ class ServiceDetector:
         self.target = target
         self.timeout = timeout
         self.verbose = verbose
+        self.last_export_path: Optional[str] = None
         self.service_probes = {
             "HTTP": b"GET / HTTP/1.1\r\nHost: %s\r\nUser-Agent: HostScanner/1.0\r\nAccept: */*\r\n\r\n",
             "HTTPS": b"GET / HTTP/1.1\r\nHost: %s\r\nUser-Agent: HostScanner/1.0\r\nAccept: */*\r\n\r\n",
@@ -119,16 +145,13 @@ class ServiceDetector:
         return common_ports.get(port, "unknown")
     
     def _get_banner(self, port: int, service_name: str) -> Optional[str]:
-        """Get service banner"""
+        """Get service banner with size cap and guaranteed socket close."""
+        sock = None
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(self.timeout)
             sock.connect((self.target, port))
-            
-            # Send appropriate probe based on service. Alt-HTTP(S) port names like
-            # "http-proxy" (8080) or "https-alt" (8443) don't have their own probe
-            # dict entry, so route anything starting with http(s) to the HTTP(S)
-            # probe instead of silently falling through to the generic one below.
+
             probe_key = service_name.upper()
             if probe_key.startswith("HTTPS"):
                 probe_key = "HTTPS"
@@ -137,48 +160,50 @@ class ServiceDetector:
 
             if probe_key in self.service_probes:
                 probe_template = self.service_probes[probe_key]
-                # Only HTTP/HTTPS probes contain a "%s" placeholder for the host;
-                # every other probe is a literal (often binary) payload, and
-                # applying bytes "%" formatting to one without a placeholder
-                # raises "not all arguments converted during bytes formatting".
                 if b"%s" in probe_template:
                     probe = probe_template % self.target.encode()
                 else:
                     probe = probe_template
-                if probe:  # Only send if probe is not empty
+                if probe:
                     sock.send(probe)
             else:
-                # Try generic probe
                 sock.send(self.service_probes["GENERIC"])
-            
-            # Wait a moment for response
-            time.sleep(0.5)
-            
-            # Receive response
+
+            # Short settle instead of fixed 0.5s sleep
+            sock.settimeout(min(1.0, max(0.2, self.timeout)))
             banner = b""
-            sock.settimeout(1)
-            
+            deadline = time.time() + min(2.0, self.timeout + 1.0)
             try:
-                while True:
-                    data = sock.recv(1024)
+                while time.time() < deadline and len(banner) < MAX_BANNER_BYTES:
+                    data = sock.recv(min(1024, MAX_BANNER_BYTES - len(banner)))
                     if not data:
                         break
                     banner += data
+                    # Stop early after HTTP headers
+                    if b"\r\n\r\n" in banner or b"\n\n" in banner:
+                        if banner.upper().startswith(b"HTTP/"):
+                            break
             except socket.timeout:
                 pass
-            
-            sock.close()
-            
+
             if banner:
-                return banner.decode('utf-8', errors='ignore')
+                return redact_banner(banner.decode("utf-8", errors="ignore"))
             return None
         except Exception as e:
             if self.verbose:
                 print(f"[-] Error getting banner on port {port}: {e}")
             return None
-    
+        finally:
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+
     def _get_ssl_banner(self, port: int) -> Optional[str]:
-        """Get banner using SSL connection"""
+        """Get banner using SSL connection with size cap."""
+        sock = None
+        ssl_sock = None
         try:
             context = ssl.create_default_context()
             context.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -188,39 +213,48 @@ class ServiceDetector:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(self.timeout)
             sock.connect((self.target, port))
-            
+
             ssl_sock = context.wrap_socket(sock, server_hostname=self.target)
-            
-            # Send HTTP probe for HTTPS ports
+            sock = None  # owned by ssl_sock
+
             if port in [443, 8443]:
                 ssl_sock.send(self.service_probes["HTTPS"] % self.target.encode())
-            
-            # Wait a moment for response
-            time.sleep(0.5)
-            
-            # Receive response
+
+            ssl_sock.settimeout(min(1.0, max(0.2, self.timeout)))
             banner = b""
-            ssl_sock.settimeout(1)
-            
+            deadline = time.time() + min(2.0, self.timeout + 1.0)
             try:
-                while True:
-                    data = ssl_sock.recv(1024)
+                while time.time() < deadline and len(banner) < MAX_BANNER_BYTES:
+                    data = ssl_sock.recv(min(1024, MAX_BANNER_BYTES - len(banner)))
                     if not data:
                         break
                     banner += data
+                    if b"\r\n\r\n" in banner or b"\n\n" in banner:
+                        if banner.upper().startswith(b"HTTP/"):
+                            break
             except socket.timeout:
                 pass
-            
-            ssl_sock.close()
-            
+
             if banner:
-                return banner.decode('utf-8', errors='ignore')
+                return redact_banner(banner.decode("utf-8", errors="ignore"))
             return None
         except Exception as e:
             if self.verbose:
                 print(f"[-] Error getting SSL banner on port {port}: {e}")
             return None
-    
+        finally:
+            if ssl_sock is not None:
+                try:
+                    ssl_sock.close()
+                except OSError:
+                    pass
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+
+
     @staticmethod
     def _extract_cert_names(rdns: Any) -> Dict[str, str]:
         """Extract CN/O/OU short names from an x509 subject or issuer RDN sequence."""
@@ -373,7 +407,7 @@ class ServiceDetector:
         
         return service_name, version
 
-    def scan_services(self, ports: List[int], auto_export: bool = True, output_file: Optional[str] = None) -> List[Dict[str, Any]]:
+    def scan_services(self, ports: List[int], auto_export: bool = False, output_file: Optional[str] = None) -> List[Dict[str, Any]]:
         """Scan multiple ports for services
         
         Args:
@@ -418,41 +452,56 @@ class ServiceDetector:
         Returns:
             Path to the output file
         """
-        # Create results directory if it doesn't exist
+        # Safe base results directory (never use raw host as path traversal)
         results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
-        if not os.path.exists(results_dir):
-            os.makedirs(results_dir)
-        
-        # Create IP-specific directory
-        ip_dir = os.path.join(results_dir, self.target)
-        if not os.path.exists(ip_dir):
-            os.makedirs(ip_dir)
-        
-        # Generate timestamp for filename
+        os.makedirs(results_dir, mode=0o700, exist_ok=True)
+
+        safe_target = re.sub(r"[^A-Za-z0-9._-]", "_", str(self.target))[:128] or "target"
+        ip_dir = os.path.join(results_dir, safe_target)
+        # Ensure resolved path stays under results_dir
+        ip_dir_resolved = os.path.realpath(ip_dir)
+        if not ip_dir_resolved.startswith(os.path.realpath(results_dir) + os.sep) and ip_dir_resolved != os.path.realpath(results_dir):
+            raise ValueError("Refusing to write outside results directory")
+        os.makedirs(ip_dir, mode=0o700, exist_ok=True)
+
         timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-        
+
         if output_file is None:
-            # Create filename with IP and timestamp
-            output_file = os.path.join(ip_dir, f"{self.target}_{timestamp}.json")
+            output_file = os.path.join(ip_dir, f"{safe_target}_{timestamp}.json")
         else:
-            # If output_file is provided but doesn't include the IP directory
-            if not output_file.startswith(ip_dir):
-                output_file = os.path.join(ip_dir, os.path.basename(output_file))
-        
-        # Create a structured output
+            output_file = os.path.join(ip_dir, os.path.basename(output_file))
+
+        # Redact banners in exported results
+        safe_results = []
+        for r in results:
+            item = dict(r)
+            if item.get("banner"):
+                item["banner"] = redact_banner(str(item["banner"]))
+            safe_results.append(item)
+
         output_data = {
             "target": self.target,
             "scan_time": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "ports_scanned": len(results),
-            "open_ports": [result for result in results if result["service"] != "unknown"],
-            "scan_results": results
+            "ports_scanned": len(safe_results),
+            "open_ports": [result for result in safe_results if result.get("service") != "unknown"],
+            "scan_results": safe_results,
         }
-        
-        # Write to file with nice formatting
-        with open(output_file, 'w') as f:
-            json.dump(output_data, f, indent=4)
-        
+
+        import tempfile
+        fd, tmp = tempfile.mkstemp(prefix=".svc_", suffix=".json", dir=ip_dir)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(output_data, f, indent=4)
+            os.replace(tmp, output_file)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
+        self.last_export_path = output_file
         if self.verbose:
             print(f"[+] Results exported to {output_file}")
-        
+
         return output_file

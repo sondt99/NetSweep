@@ -199,8 +199,10 @@ class TestGetVendor:
             return FakeResponse(200, "Cisco Systems")
 
         monkeypatch.setattr(requests, "get", fake_get)
-        first = device_info.get_vendor("00:1A:2B:11:22:33")
-        second = device_info.get_vendor("00:1A:2B:99:88:77")  # same OUI prefix
+        monkeypatch.setattr(device_info_module.time, "sleep", lambda seconds: None)
+        # Online vendor lookup is opt-in (privacy); pass allow_online=True
+        first = device_info.get_vendor("00:1A:2B:11:22:33", allow_online=True)
+        second = device_info.get_vendor("00:1A:2B:99:88:77", allow_online=True)
 
         assert first == "Cisco Systems"
         assert second == "Cisco Systems"
@@ -208,20 +210,25 @@ class TestGetVendor:
 
     def test_404_is_cached_as_unknown(self, device_info, monkeypatch):
         monkeypatch.setattr(requests, "get", lambda url, timeout: FakeResponse(404))
-        assert device_info.get_vendor("00:1A:2B:11:22:33") == "Unknown"
-
-    def test_429_retries_then_succeeds(self, device_info, monkeypatch):
-        responses = iter([FakeResponse(429), FakeResponse(200, "Dell Inc.")])
-        monkeypatch.setattr(requests, "get", lambda url, timeout: next(responses))
         monkeypatch.setattr(device_info_module.time, "sleep", lambda seconds: None)
+        assert device_info.get_vendor("00:1A:2B:11:22:33", allow_online=True) == "Unknown"
 
-        assert device_info.get_vendor("00:1A:2B:11:22:33") == "Dell Inc."
+    def test_online_disabled_skips_api(self, device_info, monkeypatch):
+        calls = []
+        monkeypatch.setattr(requests, "get", lambda url, timeout: calls.append(url) or FakeResponse(200, "X"))
+        # Default: offline only
+        assert device_info.get_vendor("00:1A:2B:11:22:33", allow_online=False) == "Unknown"
+        assert calls == []
 
-    def test_connection_errors_exhaust_retries_and_return_unknown(self, device_info, monkeypatch):
+    def test_offline_oui_hit(self, device_info):
+        # VMware OUI in offline DB
+        assert device_info.get_vendor("00:0C:29:11:22:33", allow_online=False) == "VMware"
+
+    def test_connection_errors_return_unknown(self, device_info, monkeypatch):
         def raise_connection_error(url, timeout):
             raise requests.exceptions.RequestException("network down")
 
         monkeypatch.setattr(requests, "get", raise_connection_error)
         monkeypatch.setattr(device_info_module.time, "sleep", lambda seconds: None)
 
-        assert device_info.get_vendor("00:1A:2B:11:22:33") == "Unknown"
+        assert device_info.get_vendor("00:1A:2B:11:22:33", allow_online=True) == "Unknown"

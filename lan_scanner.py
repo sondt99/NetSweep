@@ -1,9 +1,17 @@
 import os
 import ipaddress
 import argparse
+import sys
 from typing import List, Optional
+
 from scanner.network_scanner import NetworkScanner
 from utils.network_utils import get_local_networks, get_upstream_networks
+from config import get_config, clamp_threads
+
+try:
+    from __version__ import __version__
+except ImportError:
+    __version__ = "5.0.0"
 
 
 def _prompt_custom_network() -> Optional[str]:
@@ -13,8 +21,6 @@ def _prompt_custom_network() -> Optional[str]:
         if not raw:
             return None
         try:
-            # strict=False lets the user type a host address (192.168.1.5/24) and
-            # still get the surrounding network, matching how NetworkScanner treats it.
             return str(ipaddress.ip_network(raw, strict=False))
         except ValueError:
             print("Invalid CIDR. Example of a valid value: 192.168.1.0/24")
@@ -23,6 +29,7 @@ def _prompt_custom_network() -> Optional[str]:
 def _prompt_upstream_network() -> Optional[str]:
     """Auto-discover reachable upstream networks and let the user pick one."""
     print("\nTracing route to discover upstream networks (this may take a few seconds)...")
+    print("WARNING: Only scan upstream networks you are authorized to assess.")
     upstream = get_upstream_networks()
 
     if not upstream:
@@ -48,13 +55,7 @@ def _prompt_upstream_network() -> Optional[str]:
 
 
 def select_network(networks: List[dict]) -> Optional[str]:
-    """Interactively pick a network to scan.
-
-    Offers the locally-attached interface networks plus two extras: entering a
-    custom CIDR by hand, and auto-discovering upstream networks (the routers above
-    the gateway, which never show up as local interfaces). Returns the chosen CIDR
-    string, or None if the user cancels.
-    """
+    """Interactively pick a network to scan."""
     if networks:
         print("\nAvailable networks:")
         for idx, net in enumerate(networks, 1):
@@ -64,7 +65,7 @@ def select_network(networks: List[dict]) -> Optional[str]:
 
     print("\nOther options:")
     print("  c. Enter a custom network manually (CIDR, e.g. 192.168.1.0/24)")
-    print("  d. Auto-discover upstream networks (landlord/gateway side)")
+    print("  d. Auto-discover upstream networks (only with authorization)")
 
     while True:
         choice = input("\nSelect network to scan (number, or c/d): ").strip().lower()
@@ -91,23 +92,48 @@ def select_network(networks: List[dict]) -> Optional[str]:
 
 
 def main() -> None:
+    cfg = get_config()
     parser = argparse.ArgumentParser(description="Advanced Network Scanner")
     parser.add_argument("-n", "--network", help="Network to scan (CIDR format, e.g., 192.168.1.0/24)")
-    parser.add_argument("--discover-upstream", action="store_true",
-                        help="Auto-discover reachable upstream networks (routers above the gateway) and pick one to scan")
-    parser.add_argument("-t", "--threads", type=int, default=50, help="Number of threads (default: 50)")
+    parser.add_argument(
+        "--discover-upstream",
+        action="store_true",
+        help="Auto-discover reachable upstream networks (authorized use only)",
+    )
+    parser.add_argument(
+        "-t", "--threads", type=int, default=cfg.scan.max_workers,
+        help=f"Number of threads (default: {cfg.scan.max_workers})",
+    )
     parser.add_argument("-o", "--output", choices=["json", "csv", "txt"], help="Export format (json, csv, txt)")
-    parser.add_argument("-d", "--output-dir", default="scan_results", help="Output directory for scan results")
-    parser.add_argument("-T", "--timeout", type=float, default=0.5, help="Scan timeout in seconds (default: 0.5)")
-    parser.add_argument("--ip-timeout", type=float, default=2.0, help="Maximum time to spend on a single IP in seconds (default: 2.0)")
+    parser.add_argument(
+        "-d", "--output-dir", default=cfg.output.default_output_dir,
+        help=f"Output directory for scan results (default: {cfg.output.default_output_dir})",
+    )
+    parser.add_argument(
+        "-T", "--timeout", type=float, default=cfg.scan.timeout,
+        help=f"Scan timeout in seconds (default: {cfg.scan.timeout})",
+    )
+    parser.add_argument(
+        "--ip-timeout", type=float, default=2.0,
+        help="Maximum wall-clock budget per IP in seconds (default: 2.0)",
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument(
+        "--yes", "-y", dest="assume_yes", action="store_true",
+        help="Skip confirmation for large or non-private scopes",
+    )
 
     args = parser.parse_args()
 
     try:
-        print("\n=== Advanced Network Scanner v4.0 ===")
+        print(f"\n=== Advanced Network Scanner v{__version__} ===")
 
         if args.network:
-            network = args.network
+            try:
+                network = str(ipaddress.ip_network(args.network, strict=False))
+            except ValueError as e:
+                print(f"Invalid network CIDR: {e}")
+                sys.exit(1)
         elif args.discover_upstream:
             network = _prompt_upstream_network()
             if not network:
@@ -120,16 +146,18 @@ def main() -> None:
                 print("No network selected.")
                 return
 
-        # Create output directory if it doesn't exist
         if args.output and not os.path.exists(args.output_dir):
-            os.makedirs(args.output_dir)
+            os.makedirs(args.output_dir, mode=0o700, exist_ok=True)
 
+        threads = clamp_threads(args.threads)
         scanner = NetworkScanner(
             network=network,
-            num_threads=args.threads,
+            num_threads=threads,
             scan_timeout=args.timeout,
             ip_timeout=args.ip_timeout,
-            output_dir=args.output_dir
+            output_dir=args.output_dir,
+            verbose=args.verbose,
+            assume_yes=args.assume_yes,
         )
 
         scanner.scan(export_format=args.output)
@@ -141,6 +169,8 @@ def main() -> None:
         print("\n\nScanning stopped by user!")
     except Exception as e:
         print(f"\nError: {e}")
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

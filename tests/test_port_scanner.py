@@ -223,16 +223,37 @@ class TestUdpScanPort:
         assert "UDP" in repr(captured["pkt"])
 
 
+class TestUdpScanAggregation:
+    def test_confirmed_open_not_marked_closed(self, monkeypatch):
+        """Regression: status 'open' used to fall into closed_ports."""
+        import port_scanner as ps_module
+
+        monkeypatch.setattr(
+            PortScanner,
+            "_udp_scan_port",
+            lambda self, port: (port, "open"),
+        )
+        scanner = PortScanner("127.0.0.1", timeout=0.1)
+        # Avoid requiring scapy for the public API path
+        monkeypatch.setattr(ps_module, "_HAS_SCAPY", True)
+        monkeypatch.setattr(ps_module, "sr1", lambda *a, **k: None)
+        scanner.udp_scan([53], threads=1)
+        assert 53 in scanner.open_ports
+        assert 53 not in scanner.closed_ports
+
+
 class TestGetResults:
     def test_deduplicates_and_sorts(self):
         scanner = PortScanner("127.0.0.1")
         scanner.open_ports = [80, 22, 80]
         scanner.filtered_ports = [443]
         scanner.closed_ports = [21, 21, 25]
+        scanner.open_filtered_ports = []
 
         results = scanner.get_results()
         assert results == {
             "open": [22, 80],
+            "open|filtered": [],
             "filtered": [443],
             "closed": [21, 25],
         }

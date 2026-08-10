@@ -3,268 +3,266 @@ import time
 import os
 import json
 import csv
+import tempfile
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from tabulate import tabulate
 from tqdm import tqdm
 
 from utils.system_utils import get_local_ip, get_local_mac
 from scanner.device_info import DeviceInfo
-from config import get_config
+from config import get_config, clamp_threads
+from config_data.ports import COMMON_PORTS
 
-# Service names for the curated discovery port list (see NetworkScanner.discovery_ports).
-# Looked up from a static map instead of socket.getservbyport(): that call is backed by a
-# non-reentrant libc buffer and returns corrupted results when hit concurrently from many
-# scanning threads at once.
-DISCOVERY_PORT_SERVICES = {
-    7: 'echo', 9: 'discard', 13: 'daytime', 21: 'ftp', 22: 'ssh', 23: 'telnet',
-    25: 'smtp', 26: 'rsftp', 37: 'time', 53: 'dns', 79: 'finger', 80: 'http',
-    81: 'hosts2-ns', 88: 'kerberos', 106: 'pop3pw', 110: 'pop3', 111: 'rpcbind',
-    113: 'ident', 119: 'nntp', 135: 'msrpc', 139: 'netbios', 143: 'imap',
-    144: 'news', 179: 'bgp', 199: 'smux', 389: 'ldap', 427: 'svrloc',
-    443: 'https', 444: 'snpp', 445: 'microsoft-ds', 465: 'smtps', 513: 'login',
-    514: 'shell', 515: 'printer', 543: 'klogin', 544: 'kshell', 548: 'afp',
-    554: 'rtsp', 587: 'smtp-sub', 631: 'ipp', 646: 'ldp', 873: 'rsync',
-    990: 'ftps', 993: 'imaps', 995: 'pop3s', 1025: 'nfs-or-iis',
-    1026: 'lsa-or-nterm', 1027: 'iis', 1028: 'unknown', 1029: 'ms-lsa',
-    1110: 'nfsd-status', 1433: 'mssql', 1720: 'h323q931', 1723: 'pptp',
-    1755: 'wms', 1883: 'mqtt', 1900: 'upnp', 2000: 'cisco-sccp', 2001: 'dc',
-    2049: 'nfs', 2121: 'ccproxy-ftp', 2717: 'pn-requester', 3000: 'ppp',
-    3128: 'squid-http', 3306: 'mysql', 3389: 'rdp', 3986: 'mapper-ws_ethd',
-    4899: 'radmin', 5000: 'upnp', 5009: 'airport-admin', 5051: 'ida-agent',
-    5060: 'sip', 5101: 'admdog', 5190: 'aol', 5357: 'wsdapi',
-    5432: 'postgresql', 5631: 'pcanywhere', 5666: 'nrpe', 5800: 'vnc-http',
-    5900: 'vnc', 6000: 'x11', 6001: 'x11:1', 6646: 'unknown', 7070: 'realserver',
-    8000: 'http-alt', 8008: 'http', 8009: 'ajp13', 8080: 'http-proxy',
-    8081: 'blackice-icecap', 8443: 'https-alt', 8883: 'mqtt-ssl',
-    8888: 'sun-answerbook', 9100: 'jetdirect', 9999: 'abyss',
-    10000: 'snet-sensor-mgmt', 32768: 'filenet-tms', 49152: 'unknown',
-    49153: 'unknown', 49154: 'unknown', 49155: 'unknown', 49156: 'unknown',
-    49157: 'unknown',
-}
+# Service names for the curated discovery port list.
+DISCOVERY_PORT_SERVICES = dict(COMMON_PORTS)
+
+
+def _iter_scan_hosts(network: ipaddress.IPv4Network):
+    """Yield host addresses; for /31 and /32 include network addresses (hosts() is empty)."""
+    if network.prefixlen >= 31:
+        for addr in network:
+            yield addr
+    else:
+        for addr in network.hosts():
+            yield addr
+
+
+def _count_scan_hosts(network: ipaddress.IPv4Network) -> int:
+    if network.prefixlen >= 31:
+        return network.num_addresses
+    return network.num_addresses - 2 if network.num_addresses >= 2 else network.num_addresses
 
 
 class NetworkScanner:
     """Sweeps a CIDR network, classifying each responsive host by open ports/MAC/vendor."""
 
-    def __init__(self, network: str, num_threads: int = 50, scan_timeout: float = 0.5,
-                 ip_timeout: float = 2.0, output_dir: str = "scan_results"):
-        self.network = network
-        self.num_threads = num_threads
+    def __init__(
+        self,
+        network: str,
+        num_threads: int = 50,
+        scan_timeout: float = 0.5,
+        ip_timeout: float = 2.0,
+        output_dir: str = "scan_results",
+        verbose: bool = False,
+        assume_yes: bool = False,
+    ):
+        self.network = str(ipaddress.ip_network(network, strict=False))
+        self.num_threads = clamp_threads(num_threads)
         self.timeout = scan_timeout
-        self.ip_timeout = ip_timeout  # Maximum time to spend scanning a single IP
+        self.ip_timeout = ip_timeout
         self.devices_found = 0
         self.start_time = None
         self.known_devices = self._load_known_devices()
         self.results = []
         self.local_ip = get_local_ip()
-        self.device_info = DeviceInfo()
-        self.skipped_ips = 0  # Track how many IPs were skipped due to timeout
+        self.device_info = DeviceInfo(timeout=scan_timeout)
+        self.skipped_ips = 0
         self.output_dir = output_dir
+        self.verbose = verbose
+        self.assume_yes = assume_yes
 
-        # A /24 sweep classifies devices, it doesn't need a full 1-1000 port scan per
-        # host - that's what the dedicated host_scanner.py is for. Use the curated
-        # discovery port list so per-host scanning stays fast and fits ip_timeout.
         self.discovery_ports = get_config().network.common_ports_range
 
-        # Create output directory if it doesn't exist
         if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+            os.makedirs(output_dir, mode=0o700, exist_ok=True)
 
     def _load_known_devices(self) -> Dict[str, Dict[str, str]]:
-        # Load known devices from a JSON file if it exists
-        known_devices_file = "config/known_devices.json"
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        package_file = os.path.join(base, "config", "known_devices.json")
+        cwd_file = os.path.join(os.getcwd(), "config", "known_devices.json")
+        home_file = os.path.join(os.path.expanduser("~"), ".netsweep", "known_devices.json")
+
         default_devices = {
-            '192.168.1.1': {'name': 'Router', 'type': 'network'},
-            '192.168.1.254': {'name': 'Router', 'type': 'network'},
-            '192.168.0.1': {'name': 'Router', 'type': 'network'}
+            "192.168.1.1": {"name": "Router", "type": "network"},
+            "192.168.1.254": {"name": "Router", "type": "network"},
+            "192.168.0.1": {"name": "Router", "type": "network"},
         }
-        
-        if os.path.exists(known_devices_file):
-            try:
-                with open(known_devices_file, 'r') as f:
-                    return json.load(f)
-            except:
-                return default_devices
+
+        # Prefer CWD (tests/operator overrides), then home, then package path
+        for path in (cwd_file, home_file, package_file):
+            if os.path.exists(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        return json.load(f)
+                except (OSError, json.JSONDecodeError):
+                    continue
         return default_devices
 
     def scan_ip(self, ip) -> Optional[Dict[str, Any]]:
+        deadline = time.monotonic() + self.ip_timeout
         try:
-            # First check if the device is alive
             is_alive = self.device_info.check_device_alive(ip)
-
-            if is_alive:
-                # Small delay between IP scans
-                time.sleep(0.1)
-
-                mac = None
-                if str(ip) == self.local_ip:
-                    mac = get_local_mac()
-                else:
-                    # Try to get MAC address with limited retries
-                    max_retries = 2
-                    for _attempt in range(max_retries):
-                        mac = self.device_info.get_mac_address(str(ip))
-                        if mac:
-                            break
-                        time.sleep(0.1)
-
-                # Even if we can't get MAC, continue with port scanning
-                vendor = self.device_info.get_vendor(mac) if mac else "N/A"
-
-                # Scan a curated list of common ports for device classification (a full
-                # 1-1000 sweep per host belongs to the dedicated host_scanner.py, not a
-                # /24 discovery pass - see self.discovery_ports). Uses a single-thread
-                # non-blocking scan rather than a per-host thread pool, since spinning up
-                # one ThreadPoolExecutor per concurrently-scanned host multiplies with the
-                # outer scan concurrency and starves the OS/GIL, causing false negatives.
-                open_ports = self.device_info.scan_open_ports(str(ip), self.discovery_ports, self.timeout)
-
-                # Convert ports to display strings
-                port_strings = [f"{port}({DISCOVERY_PORT_SERVICES.get(port, 'unknown')})" for port in open_ports]
-
-                # Determine device type based on open ports
-                device_type = self._determine_device_type(port_strings)
-
-                # Check if this is a known device
-                device_name = "Unknown"
-                if str(ip) in self.known_devices:
-                    device_name = self.known_devices[str(ip)].get('name', 'Unknown')
-
-                device_info = {
-                    'ip': str(ip),
-                    'mac': mac if mac else "N/A",
-                    'vendor': vendor,
-                    'ports': ', '.join(port_strings) if port_strings else "N/A",
-                    'type': device_type,
-                    'name': device_name,
-                    'scan_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-
-                # Add to results even if MAC or ports are N/A
-                return device_info
-            else:
-                # Device is not alive, return None
+            if not is_alive:
                 return None
 
+            cfg = get_config()
+            delay = getattr(cfg.scan, "scan_delay", 0.1) or 0
+            if delay > 0:
+                time.sleep(min(delay, 0.1))
+
+            mac = None
+            if str(ip) == self.local_ip:
+                mac = get_local_mac()
+            else:
+                if time.monotonic() < deadline:
+                    mac = self.device_info.get_mac_address(str(ip))
+
+            vendor = "N/A"
+            if mac and time.monotonic() < deadline:
+                # Prefer offline OUI; online only if configured and time remains
+                remaining = deadline - time.monotonic()
+                vendor = self.device_info.get_vendor(mac, allow_online=remaining > 0.5)
+            elif mac:
+                vendor = self.device_info.get_vendor(mac, allow_online=False)
+
+            open_ports: List[int] = []
+            if time.monotonic() < deadline:
+                open_ports = self.device_info.scan_open_ports(
+                    str(ip), self.discovery_ports, self.timeout
+                )
+
+            port_strings = [
+                f"{port}({DISCOVERY_PORT_SERVICES.get(port, 'unknown')})" for port in open_ports
+            ]
+            device_type = self._determine_device_type(port_strings)
+
+            device_name = "Unknown"
+            if str(ip) in self.known_devices:
+                device_name = self.known_devices[str(ip)].get("name", "Unknown")
+
+            return {
+                "ip": str(ip),
+                "mac": mac if mac else "N/A",
+                "vendor": vendor,
+                "ports": ", ".join(port_strings) if port_strings else "N/A",
+                "type": device_type,
+                "name": device_name,
+                "scan_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
         except Exception:
-            # All errors will be handled by the ThreadPoolExecutor timeout
             return None
-    
+
     def _determine_device_type(self, open_ports: List[str]) -> str:
         if not open_ports:
             return "Unknown"
-            
-        ports_str = ' '.join(open_ports)
 
-        # Simple heuristics to determine device type.
-        # RTSP/camera signature checked first: it's far more specific than "has 80+443",
-        # which most devices with a web admin UI (including cameras themselves) also have.
-        # Port 8000 alone used to also trigger this branch, but it's an extremely
-        # common generic alt-HTTP port (dev servers, NAS, printers, Sonos, etc.),
-        # not camera-specific - it mislabeled plenty of ordinary web devices as
-        # cameras (verified live: a laptop NIC exposing only 8000 was reported as
-        # "Camera/Media Device"). RTSP (554) is the real camera signature.
-        if '554(' in ports_str:
+        ports_str = " ".join(open_ports)
+
+        if "554(" in ports_str:
             return "Camera/Media Device"
 
-        if '80(' in ports_str and ('443(' in ports_str or '8443(' in ports_str):
-            if '8080(' in ports_str or '8888(' in ports_str:
+        if "80(" in ports_str and ("443(" in ports_str or "8443(" in ports_str):
+            if "8080(" in ports_str or "8888(" in ports_str:
                 return "Web Server"
             return "Web Device"
 
-        if '22(' in ports_str and '3389(' not in ports_str:
+        if "22(" in ports_str and "3389(" not in ports_str:
             return "Linux/Unix Device"
-            
-        if '3389(' in ports_str:
+
+        if "3389(" in ports_str:
             return "Windows Device"
-            
-        if '53(' in ports_str:
+
+        if "53(" in ports_str:
             return "DNS Server"
-            
-        if '25(' in ports_str or '587(' in ports_str or '465(' in ports_str:
+
+        if "25(" in ports_str or "587(" in ports_str or "465(" in ports_str:
             return "Mail Server"
-            
-        if '21(' in ports_str:
+
+        if "21(" in ports_str:
             return "FTP Server"
 
-        if '1883(' in ports_str or '8883(' in ports_str:
+        if "1883(" in ports_str or "8883(" in ports_str:
             return "IoT Device"
-            
+
         return "Generic Device"
+
+    def _enforce_scope(self, network: ipaddress.IPv4Network, total_hosts: int) -> None:
+        cfg = get_config().security
+        max_targets = max(1, int(cfg.max_scan_targets))
+
+        if total_hosts > max_targets:
+            raise ValueError(
+                f"Network has {total_hosts} hosts which exceeds max_scan_targets={max_targets}. "
+                f"Reduce the CIDR or raise security.max_scan_targets in ~/.netsweep/config.json."
+            )
+
+        # Confirmation for large or non-private scopes
+        if cfg.require_user_confirmation and not self.assume_yes:
+            needs_confirm = total_hosts > 256 or not (
+                network.is_private or network.is_loopback
+            )
+            if needs_confirm:
+                print(
+                    f"\n[!] About to scan {total_hosts} addresses on {network}. "
+                    "Only proceed if authorized."
+                )
+                ans = input("Continue? (y/N): ").strip().lower()
+                if ans != "y":
+                    raise SystemExit("Scan aborted by user.")
 
     def scan(self, export_format: Optional[str] = None) -> List[Dict[str, Any]]:
         print("\nScanning network, please wait...")
         self.start_time = time.time()
-        network = ipaddress.ip_network(self.network)
-        total_hosts = sum(1 for _ in network.hosts())
+        network = ipaddress.ip_network(self.network, strict=False)
+        if not isinstance(network, ipaddress.IPv4Network):
+            raise ValueError("Only IPv4 networks are supported in this release")
+
+        total_hosts = _count_scan_hosts(network)
+        self._enforce_scope(network, total_hosts)
 
         print(f"Network: {self.network}")
         print(f"Total hosts to scan: {total_hosts}")
-        print(f"IP timeout limit: {self.ip_timeout}s per IP")
+        print(f"IP wall-clock budget: {self.ip_timeout}s per IP (soft deadline inside worker)")
         print(f"Thread pool size: {self.num_threads}")
+        print(f"Max concurrent connections: {get_config().security.max_concurrent_connections}")
+
+        # Chunked submit to avoid materializing huge Future lists for large (but allowed) nets
+        hosts = list(_iter_scan_hosts(network))
+        chunk_size = max(self.num_threads * 2, 50)
 
         with ThreadPoolExecutor(max_workers=self.num_threads) as executor:
-            hosts = list(network.hosts())
-            futures = [executor.submit(self.scan_ip, ip) for ip in hosts]
-
             with tqdm(total=total_hosts, desc="Scanning progress", unit="host") as pbar:
-                for future in as_completed(futures):
-                    try:
-                        # Add timeout to the future.result() call
-                        result = future.result(timeout=self.ip_timeout)  # Use exact IP timeout
-                        # scan_ip() already returns None unless check_device_alive()
-                        # confirmed the host is up (via port probe, ping, or ARP/
-                        # neighbor-table fallback), so any non-None result here is a
-                        # genuinely alive host - keep it even when MAC and ports both
-                        # came back "N/A", instead of silently dropping it and
-                        # undercounting devices_found.
-                        if result:
-                            self.results.append(result)
-                            self.devices_found += 1
-                    except TimeoutError:
-                        # Future timed out - this IP was too slow
-                        self.skipped_ips += 1
-                        print(f"\n⚠ IP scan timed out, skipping to next IP")
-                        # Continue to next IP
-                    except Exception as e:
-                        # Other exceptions also continue to next IP
-                        if "timeout" not in str(e).lower():
-                            print(f"\nError during scan: {e}")
-                        pass
-                    finally:
-                        pbar.update(1)
+                for i in range(0, len(hosts), chunk_size):
+                    chunk = hosts[i : i + chunk_size]
+                    futures = [executor.submit(self.scan_ip, ip) for ip in chunk]
+                    for future in as_completed(futures):
+                        try:
+                            result = future.result()
+                            if result:
+                                self.results.append(result)
+                                self.devices_found += 1
+                        except Exception as e:
+                            if self.verbose:
+                                print(f"\nError during scan: {e}")
+                        finally:
+                            pbar.update(1)
 
-        self.results.sort(key=lambda x: list(map(int, x['ip'].split('.'))))
-        
-        headers = ['IP', 'MAC', 'Vendor', 'Device Type', 'Open Ports']
-        table_data = [[
-            r['ip'],
-            r['mac'],
-            r['vendor'],
-            r['type'],
-            r['ports']
-        ] for r in self.results]
-        
+        try:
+            self.results.sort(key=lambda x: ipaddress.ip_address(x["ip"]))
+        except ValueError:
+            self.results.sort(key=lambda x: x.get("ip", ""))
+
+        headers = ["IP", "MAC", "Vendor", "Device Type", "Open Ports"]
+        table_data = [
+            [r["ip"], r["mac"], r["vendor"], r["type"], r["ports"]] for r in self.results
+        ]
+
         print("\nScanning results:")
-        print(tabulate(table_data, headers=headers, tablefmt='grid'))
+        print(tabulate(table_data, headers=headers, tablefmt="grid"))
 
         duration = time.time() - self.start_time
         print(f"\nStatistics:")
         print(f"- Scanning time: {duration:.2f} seconds")
         print(f"- Number of devices found: {self.devices_found}")
         print(f"- IPs skipped due to timeout: {self.skipped_ips}")
-        if total_hosts > 0:
-            timeout_rate = (self.skipped_ips / total_hosts) * 100
-            print(f"- Timeout rate: {timeout_rate:.1f}%")
-        
-        # Export results if requested
+
         if export_format:
             self.export_results(export_format)
-            
+
         return self.results
-    
+
     def export_results(self, format_type: str) -> None:
         if not self.results:
             print("No devices found - skipping export.")
@@ -273,28 +271,43 @@ class NetworkScanner:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{self.output_dir}/scan_{timestamp}"
 
-        if format_type.lower() == 'json':
-            with open(f"{filename}.json", 'w') as f:
-                json.dump(self.results, f, indent=4)
-            print(f"Results exported to {filename}.json")
+        try:
+            if format_type.lower() == "json":
+                path = f"{filename}.json"
+                self._atomic_write_json(path, self.results)
+                print(f"Results exported to {path}")
 
-        elif format_type.lower() == 'csv':
-            with open(f"{filename}.csv", 'w', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=self.results[0].keys())
-                writer.writeheader()
-                writer.writerows(self.results)
-            print(f"Results exported to {filename}.csv")
-            
-        elif format_type.lower() == 'txt':
-            headers = ['IP', 'MAC', 'Vendor', 'Device Type', 'Open Ports']
-            table_data = [[
-                r['ip'],
-                r['mac'],
-                r['vendor'],
-                r['type'],
-                r['ports']
-            ] for r in self.results]
-            
-            with open(f"{filename}.txt", 'w') as f:
-                f.write(tabulate(table_data, headers=headers, tablefmt='grid'))
-            print(f"Results exported to {filename}.txt")
+            elif format_type.lower() == "csv":
+                path = f"{filename}.csv"
+                with open(path, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.DictWriter(f, fieldnames=self.results[0].keys())
+                    writer.writeheader()
+                    writer.writerows(self.results)
+                print(f"Results exported to {path}")
+
+            elif format_type.lower() == "txt":
+                path = f"{filename}.txt"
+                headers = ["IP", "MAC", "Vendor", "Device Type", "Open Ports"]
+                table_data = [
+                    [r["ip"], r["mac"], r["vendor"], r["type"], r["ports"]] for r in self.results
+                ]
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(tabulate(table_data, headers=headers, tablefmt="grid"))
+                print(f"Results exported to {path}")
+        except OSError as e:
+            print(f"Failed to export results: {e}")
+
+    @staticmethod
+    def _atomic_write_json(path: str, data: Any) -> None:
+        directory = os.path.dirname(path) or "."
+        fd, tmp = tempfile.mkstemp(prefix=".scan_", suffix=".json", dir=directory)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise

@@ -115,16 +115,27 @@ class TestGetTtl:
         # returned None (and detect_os always reported "Unknown") on those
         # platforms - which is also this project's primary dev/CI platform.
         sample_output = "64 bytes from 127.0.0.1: icmp_seq=1 ttl=57 time=0.080 ms\n"
-        monkeypatch.setattr(hs.os, "popen", lambda cmd: io.StringIO(sample_output))
+
+        class FakeCompleted:
+            stdout = sample_output
+
+        monkeypatch.setattr(hs.subprocess, "run", lambda *a, **k: FakeCompleted())
         assert hs.get_ttl("127.0.0.1") == 57
 
     def test_parses_uppercase_ttl_from_windows_ping(self, monkeypatch):
         sample_output = "Reply from 127.0.0.1: bytes=32 time<1ms TTL=128\n"
-        monkeypatch.setattr(hs.os, "popen", lambda cmd: io.StringIO(sample_output))
+
+        class FakeCompleted:
+            stdout = sample_output
+
+        monkeypatch.setattr(hs.subprocess, "run", lambda *a, **k: FakeCompleted())
         assert hs.get_ttl("127.0.0.1") == 128
 
     def test_no_ttl_in_output_returns_none(self, monkeypatch):
-        monkeypatch.setattr(hs.os, "popen", lambda cmd: io.StringIO("Request timed out.\n"))
+        class FakeCompleted:
+            stdout = "Request timed out.\n"
+
+        monkeypatch.setattr(hs.subprocess, "run", lambda *a, **k: FakeCompleted())
         assert hs.get_ttl("127.0.0.1") is None
 
 

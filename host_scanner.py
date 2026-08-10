@@ -5,39 +5,81 @@ Inspired by nmap with enhanced capabilities
 """
 
 import argparse
+import ipaddress
 import socket
+import subprocess
 import sys
-import os
 import platform
 import time
 import concurrent.futures
 from datetime import datetime
 from typing import Iterable, List, Optional, Tuple
+
 from service_detector import ServiceDetector
+from config import get_config, clamp_threads
+from config_data.ports import get_service_name as static_service_name
+
+try:
+    from __version__ import __version__
+except ImportError:
+    __version__ = "5.0.0"
+
+MAX_THREADS = 500
+MAX_PORTS = 65535
 
 
 def banner() -> None:
     """Display the host scanner CLI banner"""
-    print("Advanced Host Scanner Network Tool")
+    print(f"Advanced Host Scanner Network Tool (NetSweep v{__version__})")
     print("-" * 60)
 
 
 def get_arguments() -> argparse.Namespace:
     """Parse command line arguments"""
+    cfg = get_config()
     parser = argparse.ArgumentParser(description='Host Scanner Network - Advanced host scanning tool')
     parser.add_argument('-t', '--target', dest='target', help='Target host to scan (IP or domain)')
-    parser.add_argument('-p', '--ports', dest='ports', default='1-1000', help='Port range to scan (default: 1-1000)')
+    parser.add_argument(
+        '-p', '--ports', dest='ports',
+        default=cfg.network.default_ports,
+        help=f'Port range to scan (default: {cfg.network.default_ports})',
+    )
     parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', help='Enable verbose output')
-    parser.add_argument('--timeout', dest='timeout', type=float, default=1.0, help='Timeout for connections (default: 1.0)')
-    parser.add_argument('-T', '--threads', dest='threads', type=int, default=100, help='Number of threads (default: 100)')
+    parser.add_argument(
+        '--timeout', dest='timeout', type=float, default=cfg.scan.timeout,
+        help=f'Timeout for connections (default: {cfg.scan.timeout})',
+    )
+    parser.add_argument(
+        '-T', '--threads', dest='threads', type=int, default=cfg.scan.max_workers,
+        help=f'Number of threads (default: {cfg.scan.max_workers})',
+    )
     parser.add_argument('--os-detection', dest='os_detection', action='store_true', help='Enable OS detection')
     parser.add_argument('--service-detection', dest='service_detection', action='store_true', help='Enable service detection')
+    parser.add_argument(
+        '--yes', '-y', dest='assume_yes', action='store_true',
+        help='Skip confirmation prompts for large port ranges',
+    )
 
     return parser.parse_args()
 
 
 def resolve_host(target: str) -> str:
-    """Resolve hostname to IP address"""
+    """Resolve hostname to IPv4 address. Rejects empty and IPv6-only inputs with a clear error."""
+    target = (target or "").strip()
+    if not target:
+        print("[-] Error: empty target")
+        sys.exit(1)
+
+    # Prefer explicit IPv4 validation
+    try:
+        addr = ipaddress.ip_address(target)
+        if isinstance(addr, ipaddress.IPv6Address):
+            print("[-] Error: IPv6 targets are not supported in this release (IPv4 only).")
+            sys.exit(1)
+        return str(addr)
+    except ValueError:
+        pass
+
     try:
         ip_address = socket.gethostbyname(target)
         print(f"[+] Target hostname: {target} resolves to {ip_address}")
@@ -47,40 +89,71 @@ def resolve_host(target: str) -> str:
         sys.exit(1)
 
 
-def parse_port_range(port_range: str) -> Iterable[int]:
-    """Parse a port range string into an iterable of ports.
+def parse_port_range(port_range: str) -> List[int]:
+    """Parse a port range string into a list of ports (1-65535).
 
-    Accepts either a dash range ("1-1000") or a comma-separated list ("22,80,443").
+    Accepts a dash range ("1-1000") or a comma-separated list ("22,80,443").
+    Raises ValueError on invalid input.
     """
-    if '-' in port_range:
-        start_port, end_port = map(int, port_range.split('-'))
-        return range(start_port, end_port + 1)
-    return [int(p) for p in port_range.split(',')]
+    if not port_range or not str(port_range).strip():
+        raise ValueError("Port range is empty")
+
+    port_range = str(port_range).strip()
+    ports: List[int] = []
+
+    if "-" in port_range and "," not in port_range:
+        parts = port_range.split("-")
+        if len(parts) != 2:
+            raise ValueError(f"Invalid port range: {port_range}")
+        start_port, end_port = int(parts[0]), int(parts[1])
+        if start_port > end_port:
+            raise ValueError(f"Inverted port range: {port_range}")
+        if start_port < 1 or end_port > 65535:
+            raise ValueError("Ports must be between 1 and 65535")
+        ports = list(range(start_port, end_port + 1))
+    else:
+        for token in port_range.split(","):
+            token = token.strip()
+            if not token:
+                raise ValueError(f"Invalid port list: {port_range}")
+            if "-" in token:
+                raise ValueError("Mixed comma and range syntax is not supported; use either 1-1000 or 22,80,443")
+            p = int(token)
+            if p < 1 or p > 65535:
+                raise ValueError(f"Port out of range: {p}")
+            ports.append(p)
+
+    if not ports:
+        raise ValueError("No ports to scan")
+    if len(ports) > MAX_PORTS:
+        raise ValueError(f"Too many ports (max {MAX_PORTS})")
+    return ports
 
 
 def get_service_name(port: int) -> str:
-    """Get service name for a port"""
-    try:
-        service = socket.getservbyport(port)
-        return service
-    except OSError:
-        return "unknown"
+    """Get service name for a port using a thread-safe static map."""
+    return static_service_name(port)
 
 
 def scan_port(ip: str, port: int, timeout: float) -> Tuple[int, bool, Optional[str]]:
     """Scan a single port"""
+    sock = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(timeout)
         result = sock.connect_ex((ip, port))
         if result == 0:
             service = get_service_name(port)
-            sock.close()
             return port, True, service
-        sock.close()
         return port, False, None
     except OSError:
         return port, False, None
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
 
 
 def scan_ports(ip: str, port_range: str, timeout: float, threads: int, verbose: bool) -> List[Tuple[int, str]]:
@@ -88,37 +161,38 @@ def scan_ports(ip: str, port_range: str, timeout: float, threads: int, verbose: 
     print(f"[+] Scanning ports {port_range} on {ip}...")
 
     ports = parse_port_range(port_range)
+    threads = clamp_threads(min(threads, MAX_THREADS))
 
-    open_ports = []
+    open_ports: List[Tuple[int, str]] = []
     start_time = time.time()
-    
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
         future_to_port = {executor.submit(scan_port, ip, port, timeout): port for port in ports}
-        
+
         for future in concurrent.futures.as_completed(future_to_port):
             port, is_open, service = future.result()
             if is_open:
-                open_ports.append((port, service))
+                open_ports.append((port, service or "unknown"))
                 if verbose:
                     print(f"[+] Port {port}/tcp is open - {service}")
-    
+
     scan_time = time.time() - start_time
-    
+
     print(f"[+] Scan completed in {scan_time:.2f} seconds")
     print(f"[+] Found {len(open_ports)} open ports")
-    
+
     if open_ports:
         print("\nPORT     STATE  SERVICE")
         for port, service in sorted(open_ports):
             print(f"{port:<8} open   {service}")
-    
+
     return open_ports
+
 
 def detect_os(ip: str, open_ports: List[Tuple[int, str]]) -> str:
     """Attempt to detect the operating system"""
     print("\n[+] Attempting OS detection...")
 
-    # Basic OS detection based on TTL and port signatures
     ttl = get_ttl(ip)
 
     if ttl is None:
@@ -138,96 +212,130 @@ def detect_os(ip: str, open_ports: List[Tuple[int, str]]) -> str:
         os_guess = "Solaris/AIX"
         confidence = "Low"
 
-    # Improve detection based on open ports
-    if 3389 in [p[0] for p in open_ports]:
+    port_nums = [p[0] for p in open_ports]
+    if 3389 in port_nums:
         if os_guess == "Windows":
             confidence = "High"
         else:
             os_guess = "Windows or Linux with RDP"
 
-    if 22 in [p[0] for p in open_ports]:
+    if 22 in port_nums:
         if os_guess == "Linux/Unix":
             confidence = "High"
 
     print(f"[+] OS detection results: {os_guess} (Confidence: {confidence})")
     return os_guess
 
-def get_ttl(ip: str) -> Optional[int]:
-    """Get TTL value using ping"""
-    try:
-        if platform.system().lower() == "windows":
-            ping_cmd = f"ping -n 1 {ip}"
-        else:
-            ping_cmd = f"ping -c 1 {ip}"
 
-        response = os.popen(ping_cmd).read()
-        # Linux/macOS ping prints lowercase "ttl=NN"; only Windows uses "TTL=".
-        # A case-sensitive search here always misses on non-Windows, so
-        # detect_os() silently failed on every host on those platforms.
+def get_ttl(ip: str) -> Optional[int]:
+    """Get TTL value using ping (argv list — no shell)."""
+    try:
+        # Only allow valid IP addresses into the process argv
+        ipaddress.ip_address(ip)
+    except ValueError:
+        return None
+
+    try:
+        is_windows = platform.system().lower() == "windows"
+        if is_windows:
+            cmd = ["ping", "-n", "1", "-w", "1000", ip]
+        else:
+            cmd = ["ping", "-c", "1", "-W", "1", ip]
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            shell=False,
+        )
+        response = result.stdout or ""
         ttl_index = response.lower().find("ttl=")
         if ttl_index != -1:
-            ttl = int(response[ttl_index+4:].split()[0])
-            return ttl
+            return int(response[ttl_index + 4 :].split()[0])
         return None
-    except (OSError, ValueError):
+    except (OSError, ValueError, subprocess.SubprocessError):
         return None
 
-def detect_services(ip: str, open_ports: List[Tuple[int, str]], timeout: float) -> List[Tuple[int, str, str, Optional[str]]]:
-    """Perform deeper service detection"""
-    print("\n[+] Performing service detection...")
-
-    enhanced_ports = []
-    for port, service in open_ports:
-        service_banner = get_service_banner(ip, port, timeout)
-        version = "unknown"
-
-        if service_banner:
-            # Try to identify service version from banner
-            if "SSH" in service_banner:
-                version = service_banner.split()[0]
-            elif "HTTP" in service_banner:
-                version = "HTTP Server"
-                if "Apache" in service_banner:
-                    version = f"Apache {service_banner.split('Apache/')[1].split()[0]}"
-                elif "nginx" in service_banner:
-                    version = f"nginx {service_banner.split('nginx/')[1].split()[0]}"
-
-            print(f"[+] Port {port}/{service}: {version} - Banner: {service_banner.strip()}")
-        else:
-            print(f"[+] Port {port}/{service}: {version}")
-
-        enhanced_ports.append((port, service, version, service_banner))
-
-    return enhanced_ports
 
 def get_service_banner(ip: str, port: int, timeout: float) -> Optional[str]:
-    """Get service banner for a port"""
+    """Legacy banner grab (kept for unit tests / light probes). Prefer ServiceDetector."""
+    sock = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(timeout)
         sock.connect((ip, port))
-
-        # Send different probes based on common ports
-        if port == 80 or port == 443 or port == 8080:
+        if port in (80, 443, 8080):
             sock.send(b"GET / HTTP/1.1\r\nHost: " + ip.encode() + b"\r\n\r\n")
-        elif port == 22:
-            # SSH will send banner automatically
-            pass
-        elif port == 21:
-            # FTP will send banner automatically
-            pass
-        elif port == 25 or port == 587:
-            # SMTP will send banner automatically
-            pass
-        else:
-            # Generic probe
+        elif port not in (22, 21, 25, 587):
             sock.send(b"\r\n")
-
         banner_bytes = sock.recv(1024)
-        sock.close()
-        return banner_bytes.decode('utf-8', errors='ignore')
+        return banner_bytes.decode("utf-8", errors="ignore")
     except OSError:
         return None
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+
+def detect_services(
+    ip: str, open_ports: List[Tuple[int, str]], timeout: float
+) -> List[Tuple[int, str, str, Optional[str]]]:
+    """Legacy service detection helper (tests). Host main() uses ServiceDetector only."""
+    print("\n[+] Performing service detection...")
+    enhanced_ports = []
+    for port, service in open_ports:
+        service_banner = get_service_banner(ip, port, timeout)
+        version = "unknown"
+        if service_banner:
+            try:
+                if "SSH" in service_banner:
+                    version = service_banner.split()[0]
+                elif "HTTP" in service_banner:
+                    version = "HTTP Server"
+                    if "Apache/" in service_banner:
+                        version = f"Apache {service_banner.split('Apache/')[1].split()[0]}"
+                    elif "nginx/" in service_banner:
+                        version = f"nginx {service_banner.split('nginx/')[1].split()[0]}"
+            except (IndexError, ValueError):
+                version = "unknown"
+            print(f"[+] Port {port}/{service}: {version} - Banner: {service_banner.strip()[:80]}")
+        else:
+            print(f"[+] Port {port}/{service}: {version}")
+        enhanced_ports.append((port, service, version, service_banner))
+    return enhanced_ports
+
+
+def _confirm_scope(ip: str, port_count: int, assume_yes: bool) -> None:
+    """Confirm large scans / non-private targets when security.require_user_confirmation is set."""
+    cfg = get_config()
+    if assume_yes or not cfg.security.require_user_confirmation:
+        return
+
+    try:
+        addr = ipaddress.ip_address(ip)
+        is_private = addr.is_private or addr.is_loopback
+    except ValueError:
+        is_private = False
+
+    if not is_private and not getattr(cfg.security, "allow_public_targets", False):
+        ans = input(
+            f"[!] Target {ip} is not a private address. Only scan systems you own or "
+            f"are authorized to test. Continue? (y/N): "
+        ).strip().lower()
+        if ans != "y":
+            print("Aborted.")
+            sys.exit(0)
+
+    if port_count > 5000:
+        ans = input(f"[!] About to scan {port_count} ports. Continue? (y/N): ").strip().lower()
+        if ans != "y":
+            print("Aborted.")
+            sys.exit(0)
+
 
 def main() -> None:
     """Main function"""
@@ -240,33 +348,39 @@ def main() -> None:
 
     print(f"[+] Starting scan at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-    # Resolve hostname to IP
     ip = resolve_host(args.target)
 
-    # Scan ports
-    open_ports = scan_ports(ip, args.ports, args.timeout, args.threads, args.verbose)
+    try:
+        ports = parse_port_range(args.ports)
+    except ValueError as e:
+        print(f"[-] Error: {e}")
+        sys.exit(1)
 
-    # OS detection if enabled
+    _confirm_scope(ip, len(ports), args.assume_yes)
+
+    threads = clamp_threads(args.threads)
+    open_ports = scan_ports(ip, args.ports, args.timeout, threads, args.verbose)
+
     if args.os_detection:
         detect_os(ip, open_ports)
 
-    # Service detection if enabled
-    if args.service_detection and open_ports:
-        detect_services(ip, open_ports, args.timeout)
+    if args.service_detection:
+        if open_ports:
+            print("\n[+] Performing service detection on open ports...")
+            detector = ServiceDetector(ip, timeout=args.timeout, verbose=args.verbose)
+            results = detector.scan_services([port for port, _ in open_ports], auto_export=True)
+            # Prefer path from exporter
+            export_path = detector.last_export_path
+            if export_path:
+                print(f"\n[+] Scan results saved to {export_path}")
+            else:
+                print("\n[+] Service detection completed")
+            _ = results
+        else:
+            print("\n[+] No open ports for service detection")
 
     print(f"\n[+] Scan completed for {args.target} ({ip}) at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-    if args.service_detection:
-        print("\n[+] Performing service detection on open ports...")
-        detector = ServiceDetector(ip, timeout=args.timeout, verbose=args.verbose)
-
-        # Use auto_export=True to automatically export results
-        detector.scan_services([port for port, _ in open_ports], auto_export=True)
-
-
-        # No need to manually call export_to_json as it's done automatically
-        timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-        print(f"\n[+] Scan results saved to results/{ip}/{ip}_{timestamp}.json")
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,155 @@
+"""Offline MAC OUI vendor map (common vendors) to avoid default phone-home lookups."""
+
+from __future__ import annotations
+
+from typing import Dict, Optional
+
+# Common OUI prefixes (first 3 octets, uppercase no separators) → vendor.
+# Not exhaustive; unknown OUIs fall back to optional online lookup if enabled.
+OUI_DATABASE: Dict[str, str] = {
+    "000C29": "VMware",
+    "001C14": "VMware",
+    "005056": "VMware",
+    "000569": "VMware",
+    "00155D": "Microsoft Hyper-V",
+    "00163E": "Xen",
+    "080027": "VirtualBox",
+    "525400": "QEMU/KVM",
+    "B827EB": "Raspberry Pi Foundation",
+    "DCA632": "Raspberry Pi Trading",
+    "E45F01": "Raspberry Pi Trading",
+    "28CDC1": "Raspberry Pi Trading",
+    "001A11": "Google",
+    "F4F5E8": "Google",
+    "3C5AB4": "Google",
+    "001DD8": "Microsoft",
+    "7C1E52": "Microsoft",
+    "00155D": "Microsoft",
+    "F0D1A9": "Apple",
+    "ACDE48": "Apple",
+    "3C0754": "Apple",
+    "A4B197": "Apple",
+    "001B63": "Apple",
+    "001451": "Apple",
+    "D8A25E": "Apple",
+    "001E10": "Huawei",
+    "00E0FC": "Huawei",
+    "04C06F": "Huawei",
+    "28B448": "Huawei",
+    "001A2F": "Cisco",
+    "001B0D": "Cisco",
+    "0050F2": "Microsoft",
+    "001CC0": "Cisco",
+    "00D0D3": "Cisco",
+    "00000C": "Cisco",
+    "001321": "HP",
+    "001A4B": "HP",
+    "3C4A92": "HP",
+    "B4B52F": "HP",
+    "001E58": "D-Link",
+    "001CF0": "D-Link",
+    "14D64D": "D-Link",
+    "001B11": "D-Link",
+    "C8D3A3": "D-Link",
+    "84D6D0": "Amazon",
+    "FC65DE": "Amazon",
+    "68A40E": "Amazon Technologies",
+    "F0D2F1": "Amazon Technologies",
+    "001E8C": "ASUSTek",
+    "2C56DC": "ASUSTek",
+    "04D4C4": "ASUSTek",
+    "AC220B": "ASUSTek",
+    "00E04C": "Realtek",
+    "52:54:00": "QEMU",  # invalid form kept out of lookup by normalize
+    "001E06": "Wistron Neweb",
+    "00A0C9": "Intel",
+    "001B21": "Intel",
+    "3C970E": "Intel",
+    "F48C50": "Intel",
+    "A0369F": "Intel",
+    "001DD9": "Hon Hai / Foxconn",
+    "000F3D": "D-Link",
+    "00156D": "Ubiquiti",
+    "24A43C": "Ubiquiti",
+    "802AA8": "Ubiquiti",
+    "B4FBE4": "Ubiquiti",
+    "001788": "Hikvision",
+    "4447CC": "Hikvision",
+    "C056E3": "Hikvision",
+    "BCAD28": "Hikvision",
+    "2857BE": "Hangzhou Hikvision",
+    "001F3A": "Hon Hai",
+    "00D0C9": "Intel",
+    "001E67": "Intel",
+    "B8AC6F": "Dell",
+    "001372": "Dell",
+    "F8BC12": "Dell",
+    "18A99B": "Dell",
+    "001A92": "ASUSTek",
+    "002215": "ASUSTek",
+    "00E018": "ASUSTek",
+    "1C872C": "ASUSTek",
+    "D850E6": "ASUSTek",
+    "A0F3C1": "TP-Link",
+    "50C7BF": "TP-Link",
+    "C0E42D": "TP-Link",
+    "14CC20": "TP-Link",
+    "EC086B": "TP-Link",
+    "0019E0": "TP-Link",
+    "F4EC38": "TP-Link",
+    "60E327": "TP-Link",
+    "000B82": "Grandstream",
+    "C074AD": "Grandstream",
+    "0004F2": "Polycom",
+    "64167F": "Polycom",
+    "000E08": "Sipura / Linksys",
+    "0018F8": "Cisco-Linksys",
+    "002129": "Cisco-Linksys",
+    "001EE5": "Cisco-Linksys",
+    "001839": "Cisco-Linksys",
+    "00E04B": "Jump Industrie",
+    "001B9E": "Netgear",
+    "A040A0": "Netgear",
+    "C40415": "Netgear",
+    "6CB0CE": "Netgear",
+    "204E7F": "Netgear",
+    "E0469A": "Netgear",
+    "001E2A": "Netgear",
+    "28C68E": "Netgear",
+    "001D7E": "Cisco-Linksys",
+    "001C10": "Cisco-Linksys",
+    "000F66": "Cisco-Linksys",
+    "0016B6": "Cisco-Linksys",
+    "0018F6": "Cisco-Linksys",
+    "001A70": "Cisco-Linksys",
+    "001C10": "Cisco-Linksys",
+    "001D7E": "Cisco-Linksys",
+    "001E13": "Cisco-Linksys",
+    "001EE5": "Cisco-Linksys",
+    "002129": "Cisco-Linksys",
+    "00226B": "Cisco-Linksys",
+    "00248C": "ASUSTek",
+    "0026F2": "Netgear",
+    "0026FF": "BlackBerry",
+    "00271D": "Comba Telecom",
+    "0027F8": "Brocade",
+}
+
+
+def normalize_oui(mac_address: str) -> Optional[str]:
+    """Return 6-char uppercase OUI from a MAC string, or None if invalid."""
+    cleaned = mac_address.replace(":", "").replace("-", "").replace(".", "").upper()
+    if len(cleaned) < 6:
+        return None
+    oui = cleaned[:6]
+    if not all(c in "0123456789ABCDEF" for c in oui):
+        return None
+    return oui
+
+
+def lookup_oui_offline(mac_address: str) -> Optional[str]:
+    """Look up vendor from the offline map. Returns None if not found."""
+    oui = normalize_oui(mac_address)
+    if not oui:
+        return None
+    return OUI_DATABASE.get(oui)

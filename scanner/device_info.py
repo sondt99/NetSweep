@@ -2,49 +2,56 @@ import subprocess
 import socket
 import select
 import selectors
-import requests
 import logging
 import re
 import time
+import threading
 from typing import Dict, List, Optional
+
+import requests
 from getmac import get_mac_address
 import platform
+
+from utils.connection_budget import get_connection_semaphore
+from utils.oui_db import lookup_oui_offline
+from config import get_config
+
+logger = logging.getLogger(__name__)
+
 
 class DeviceInfo:
     """Host-liveness, port, MAC, and vendor lookups used by the LAN scanner."""
 
-    def __init__(self):
+    def __init__(self, timeout: Optional[float] = None):
         self.vendor_cache: Dict[str, str] = {}
         self.mac_cache: Dict[str, str] = {}
-        self.timeout = 0.5
-        logging.basicConfig(level=logging.INFO)
+        self._cache_lock = threading.Lock()
+        self.timeout = timeout if timeout is not None else 0.5
 
     def check_device_alive(self, ip) -> bool:
         try:
-            # Probe common ports concurrently (non-blocking connect + select) instead of
-            # one-by-one, so the whole probe costs ~self.timeout instead of N * self.timeout
             if self._check_ports_concurrent(str(ip)):
                 return True
-
-            # Fall back to ICMP ping
             if self._ping(str(ip)):
                 return True
-
-            # Last resort: check the OS ARP/neighbor table (works on Linux/macOS too, not just Windows)
             if self._check_arp(str(ip)):
                 return True
-
             return False
         except Exception as e:
-            logging.error(f"Error checking if device is alive: {e}")
+            logger.error("Error checking if device is alive: %s", e)
             return False
 
     def _check_ports_concurrent(self, ip: str) -> bool:
         """Try connecting to several common ports at once; return True on first success."""
         common_ports = [80, 443, 22, 8080, 53, 3389, 445, 139, 21, 23, 5000]
         sockets = {}
+        sem = get_connection_semaphore()
+        acquired = 0
         try:
             for port in common_ports:
+                if not sem.acquire(blocking=True, timeout=self.timeout + 0.5):
+                    break
+                acquired += 1
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.setblocking(False)
                 try:
@@ -52,6 +59,8 @@ class DeviceInfo:
                     sockets[sock] = port
                 except OSError:
                     sock.close()
+                    sem.release()
+                    acquired -= 1
 
             deadline = time.time() + self.timeout
             pending = list(sockets.keys())
@@ -73,6 +82,11 @@ class DeviceInfo:
                     sock.close()
                 except OSError:
                     pass
+            for _ in range(acquired):
+                try:
+                    sem.release()
+                except ValueError:
+                    break
 
     def _ping(self, ip: str) -> bool:
         try:
@@ -82,162 +96,197 @@ class DeviceInfo:
             timeout_value = str(int(self.timeout * 1000)) if is_windows else str(max(1, int(self.timeout)))
 
             command = ["ping", param, "1", timeout_param, timeout_value, ip]
-            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=self.timeout + 1)
+            result = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=self.timeout + 1,
+                shell=False,
+            )
             return result.returncode == 0
         except Exception:
             return False
 
     def scan_open_ports(self, ip: str, ports: List[int], timeout: Optional[float] = None) -> List[int]:
-        """Concurrently probe a list of ports on ip via non-blocking connect + a
-        selector, returning the sorted list of ports that are open. Unlike spinning up
-        a ThreadPoolExecutor per host, this uses a single thread regardless of how many
-        ports/hosts are scanned at once, so it stays correct when many hosts are being
-        scanned in parallel (a per-host thread pool multiplies with outer scan
-        concurrency and starves the OS/GIL, causing false negatives under load).
-        Uses selectors (epoll/kqueue where available) instead of raw select() to avoid
-        its ~1024 file-descriptor ceiling once the port list grows."""
+        """Probe ports with a selector, under a process-wide connection budget.
+
+        Ports are processed in batches so hosts×ports cannot exhaust FDs.
+        """
         timeout = self.timeout if timeout is None else timeout
-        sockets = {}
-        open_ports = []
-        sel = selectors.DefaultSelector()
-        try:
-            for port in ports:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.setblocking(False)
-                try:
-                    sock.connect_ex((ip, port))
-                    sockets[sock] = port
-                    sel.register(sock, selectors.EVENT_WRITE)
-                except OSError:
-                    sock.close()
+        open_ports: List[int] = []
+        sem = get_connection_semaphore()
+        batch_size = min(64, max(8, get_config().security.max_concurrent_connections // max(1, 4)))
 
-            deadline = time.time() + timeout
-            pending = len(sockets)
-            while pending:
-                remaining = deadline - time.time()
-                if remaining <= 0:
-                    break
-                events = sel.select(timeout=remaining)
-                if not events:
-                    break
-                for key, _ in events:
-                    sock = key.fileobj
-                    sel.unregister(sock)
-                    pending -= 1
-                    if sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR) == 0:
-                        open_ports.append(sockets[sock])
-            return sorted(open_ports)
-        finally:
-            sel.close()
-            for sock in sockets:
+        for offset in range(0, len(ports), batch_size):
+            batch = ports[offset : offset + batch_size]
+            sockets = {}
+            acquired = 0
+            sel = selectors.DefaultSelector()
+            try:
+                for port in batch:
+                    if not sem.acquire(blocking=True, timeout=timeout + 1.0):
+                        break
+                    acquired += 1
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.setblocking(False)
+                    try:
+                        sock.connect_ex((ip, port))
+                        sockets[sock] = port
+                        sel.register(sock, selectors.EVENT_WRITE)
+                    except OSError:
+                        sock.close()
+                        sem.release()
+                        acquired -= 1
+
+                deadline = time.time() + timeout
+                pending = len(sockets)
+                while pending:
+                    remaining = deadline - time.time()
+                    if remaining <= 0:
+                        break
+                    events = sel.select(timeout=remaining)
+                    if not events:
+                        break
+                    for key, _ in events:
+                        sock = key.fileobj
+                        try:
+                            sel.unregister(sock)
+                        except Exception:
+                            pass
+                        pending -= 1
+                        if sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR) == 0:
+                            open_ports.append(sockets[sock])
+            finally:
                 try:
-                    sock.close()
-                except OSError:
+                    sel.close()
+                except Exception:
                     pass
+                for sock in sockets:
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
+                for _ in range(acquired):
+                    try:
+                        sem.release()
+                    except ValueError:
+                        break
 
-    # A resolved MAC (aa:bb:cc:dd:ee:ff), used to confirm a real ARP/neighbor entry.
+        return sorted(open_ports)
+
     _MAC_RE = re.compile(r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}")
 
     def _check_arp(self, ip: str) -> bool:
-        """Return True only when the OS ARP/neighbor table holds a *resolved* MAC for ip.
+        """Return True only when the OS ARP/neighbor table holds a resolved MAC for ip."""
 
-        We require an actual hardware address rather than trusting that the tool
-        merely echoed the queried IP. Both `arp -n <ip>` and `ip neigh show <ip>`
-        print the IP back even when there is NO entry - e.g.
-        "192.168.1.65 (192.168.1.65) -- no entry" - which used to read as a false
-        "alive" for every dead host on a routed subnet (the room-router case where
-        no ARP reply ever comes back). Matching on a MAC eliminates that.
-        """
         def _has_real_mac(text: str) -> bool:
-            # Normalize Windows' dash-separated MACs to colon form before matching.
-            match = self._MAC_RE.search(text.replace('-', ':'))
+            match = self._MAC_RE.search(text.replace("-", ":"))
             return bool(match) and match.group(0).lower() != "ff:ff:ff:ff:ff:ff"
 
         try:
             if platform.system().lower() == "windows":
-                result = subprocess.run(["arp", "-a", ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1)
-                return _has_real_mac(result.stdout.decode('utf-8', errors='ignore'))
+                result = subprocess.run(
+                    ["arp", "-a", ip],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=1,
+                    shell=False,
+                )
+                return _has_real_mac(result.stdout.decode("utf-8", errors="ignore"))
 
-            # Linux/macOS: prefer `ip neigh`, fall back to `arp -n`. A FAILED/INCOMPLETE
-            # neighbor entry means the address never resolved - treat it as not alive.
             try:
-                result = subprocess.run(["ip", "neigh", "show", ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1)
-                output = result.stdout.decode('utf-8', errors='ignore')
+                result = subprocess.run(
+                    ["ip", "neigh", "show", ip],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=1,
+                    shell=False,
+                )
+                output = result.stdout.decode("utf-8", errors="ignore")
                 lowered = output.lower()
                 if "failed" not in lowered and "incomplete" not in lowered and _has_real_mac(output):
                     return True
             except (FileNotFoundError, subprocess.SubprocessError):
                 pass
 
-            result = subprocess.run(["arp", "-n", ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1)
-            return _has_real_mac(result.stdout.decode('utf-8', errors='ignore'))
+            result = subprocess.run(
+                ["arp", "-n", ip],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=1,
+                shell=False,
+            )
+            return _has_real_mac(result.stdout.decode("utf-8", errors="ignore"))
         except Exception:
             return False
 
     def get_mac_address(self, ip: str) -> Optional[str]:
-        if ip in self.mac_cache:
-            return self.mac_cache[ip]
+        with self._cache_lock:
+            if ip in self.mac_cache:
+                return self.mac_cache[ip]
 
         try:
             mac = get_mac_address(ip=str(ip))
             if mac:
-                self.mac_cache[ip] = mac
+                with self._cache_lock:
+                    self.mac_cache[ip] = mac
                 return mac
         except Exception as e:
-            logging.error(f"Error when getting MAC for {ip}: {str(e)}")
+            logger.error("Error when getting MAC for %s: %s", ip, e)
         return None
 
-    def get_vendor(self, mac_address: Optional[str]) -> str:
+    def get_vendor(self, mac_address: Optional[str], allow_online: Optional[bool] = None) -> str:
         if not mac_address or mac_address == "N/A":
             return "N/A"
 
         try:
-            oui = mac_address.replace(':', '').replace('-', '').upper()[:6]
+            oui = mac_address.replace(":", "").replace("-", "").upper()[:6]
 
-            # Locally-administered MACs (2nd LSB of the first octet set) are randomized
-            # privacy addresses (common on modern phones/laptops) and will never match a
-            # real vendor OUI - skip the API call entirely instead of burning retries on it.
             if len(oui) == 6 and int(oui[0:2], 16) & 0x02:
                 return "Randomized/Private MAC"
 
-            if oui in self.vendor_cache:
-                return self.vendor_cache[oui]
+            with self._cache_lock:
+                if oui in self.vendor_cache:
+                    return self.vendor_cache[oui]
 
+            offline = lookup_oui_offline(mac_address)
+            if offline:
+                with self._cache_lock:
+                    self.vendor_cache[oui] = offline
+                return offline
+
+            cfg = get_config()
+            online_enabled = (
+                allow_online
+                if allow_online is not None
+                else getattr(cfg.security, "online_vendor_lookup", False)
+            )
+            if not online_enabled:
+                with self._cache_lock:
+                    self.vendor_cache[oui] = "Unknown"
+                return "Unknown"
+
+            # Optional online lookup (opt-in) — rate-limited
             url = f"https://api.macvendors.com/{oui}"
+            rate = getattr(cfg.security, "rate_limit_delay", 0.01) or 0.01
+            time.sleep(rate)
 
-            max_retries = 3
-            retry_delay = 1.0
-
-            for attempt in range(max_retries):
-                try:
-                    response = requests.get(url, timeout=2)
-
-                    if response.status_code == 200:
-                        vendor = response.text
+            try:
+                response = requests.get(url, timeout=2)
+                if response.status_code == 200:
+                    vendor = response.text.strip() or "Unknown"
+                    with self._cache_lock:
                         self.vendor_cache[oui] = vendor
-                        return vendor
-                    elif response.status_code == 429:
-                        # Only rate-limiting is worth retrying
-                        time.sleep(retry_delay)
-                        retry_delay = min(retry_delay * 2, 5)
-                        continue
-                    else:
-                        # e.g. 404 "OUI not found" - this is a definitive answer, retrying won't help
-                        self.vendor_cache[oui] = "Unknown"
-                        return "Unknown"
-                except requests.exceptions.RequestException as e:
-                    logging.error(f"Connection API error (attempt {attempt + 1}): {str(e)}")
-                    if attempt < max_retries - 1:
-                        time.sleep(retry_delay)
-                        continue
-
-            # Do not log MAC addresses (full or partial): CodeQL treats them as
-            # private/sensitive and partial masking does not break taint flow.
-            logging.warning("Exceeded retry limit for MAC vendor lookup")
-            self.vendor_cache[oui] = "Unknown"
-            return "Unknown"
+                    return vendor
+                with self._cache_lock:
+                    self.vendor_cache[oui] = "Unknown"
+                return "Unknown"
+            except requests.exceptions.RequestException as e:
+                logger.error("Vendor API error: %s", e)
+                with self._cache_lock:
+                    self.vendor_cache[oui] = "Unknown"
+                return "Unknown"
 
         except Exception as e:
-            # Omit MAC from logs; exception text alone is enough for diagnostics.
-            logging.error("Unexpected error when getting MAC vendor: %s", e)
+            logger.error("Unexpected error when getting MAC vendor: %s", e)
             return "Unknown"

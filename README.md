@@ -2,7 +2,7 @@
 
 Python Version: 3.7+
 License: MIT
-Version: 4.0-Pro
+Version: 5.0.0
 
 > **NetSweep** is a comprehensive, professional-grade network scanning tool written in Python. Designed as an alternative to Nmap, it combines powerful functionality with an intuitive interface for both educational and authorized network auditing purposes.
 
@@ -225,7 +225,7 @@ python config.py --create-config ~/.netsweep/config.json
 
 ### LAN Scanner Results
 ```
-=== Advanced Network Scanner v4.0 ===
+=== Advanced Network Scanner v5.0.0 ===
 
 Available Networks:
 1. 192.168.1.0/24 (Interface: wlan0) - Private Network
@@ -442,7 +442,7 @@ python -m pytest tests/
 
 ## Changelog
 
-### Version 4.0-Pro (Current)
+### Version 5.0.0 (Current)
 - Professional configuration management system
 - Advanced error handling and logging
 - Improved security and input validation

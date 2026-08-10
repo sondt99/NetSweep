@@ -66,11 +66,14 @@ class OutputConfig:
 
 @dataclass
 class SecurityConfig:
-    """Security and limits configuration"""
+    """Security and limits configuration (enforced at runtime by scanners)."""
     max_scan_targets: int = 1000
     max_concurrent_connections: int = 200
+    max_threads: int = 200
     rate_limit_delay: float = 0.01
     require_user_confirmation: bool = True
+    allow_public_targets: bool = False
+    online_vendor_lookup: bool = False  # offline OUI first; API opt-in only
 
 
 @dataclass
@@ -206,6 +209,10 @@ class ConfigManager:
             errors.append("Max scan targets must be positive")
         if self.config.security.max_concurrent_connections <= 0:
             errors.append("Max concurrent connections must be positive")
+        if getattr(self.config.security, "max_threads", 200) <= 0:
+            errors.append("Max threads must be positive")
+        if self.config.scan.max_workers > getattr(self.config.security, "max_threads", 200):
+            errors.append("scan.max_workers exceeds security.max_threads")
 
         return errors
 
@@ -232,9 +239,19 @@ class ConfigManager:
             'output.table_style': self.config.output.table_style,
             'security.max_scan_targets': self.config.security.max_scan_targets,
             'security.max_concurrent_connections': self.config.security.max_concurrent_connections,
+            'security.max_threads': getattr(self.config.security, 'max_threads', 200),
             'security.rate_limit_delay': self.config.security.rate_limit_delay,
             'security.require_user_confirmation': self.config.security.require_user_confirmation,
+            'security.allow_public_targets': getattr(self.config.security, 'allow_public_targets', False),
+            'security.online_vendor_lookup': getattr(self.config.security, 'online_vendor_lookup', False),
         }
+
+
+def clamp_threads(requested: int) -> int:
+    """Clamp thread count to positive and security.max_threads."""
+    sec = get_config().security
+    max_t = max(1, int(getattr(sec, "max_threads", 200)))
+    return max(1, min(int(requested), max_t))
 
 
 # Global configuration manager instance

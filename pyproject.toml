@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netsweep"
+version = "5.0.0"
+description = "Professional network discovery and host scanning toolkit"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+authors = [{ name = "Thai Son Dinh" }]
+keywords = ["network", "scanner", "security", "lan", "port-scan"]
+dependencies = [
+    "netifaces>=0.11.0",
+    "getmac>=0.9.4",
+    "requests>=2.25.1",
+    "tabulate>=0.9.0",
+    "tqdm>=4.62.0",
+]
+
+[project.optional-dependencies]
+scapy = ["scapy>=2.4.5"]
+dev = ["pytest>=7.0.0", "pytest-cov>=4.0.0"]
+
+[project.scripts]
+netsweep = "main:main"
+
+[tool.setuptools]
+py-modules = [
+    "main",
+    "config",
+    "host_scanner",
+    "lan_scanner",
+    "port_scanner",
+    "service_detector",
+    "hikvision_sadp",
+    "__version__",
+]
+packages = ["scanner", "utils", "config_data"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
