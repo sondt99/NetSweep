@@ -62,7 +62,7 @@ class TestHostEnumeration:
         monkeypatch.chdir(tmp_path)
         scanner = NetworkScanner("10.0.0.0/16", output_dir=str(tmp_path / "out"), assume_yes=True)
         # Force tiny limit
-        from config import get_config
+        from netsweep.config import get_config
 
         get_config().security.max_scan_targets = 10
         with pytest.raises(ValueError, match="max_scan_targets"):

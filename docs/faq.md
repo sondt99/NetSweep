@@ -85,7 +85,7 @@ Pre-5.0 banner export could store full HTTP bodies. Current redaction strips `Se
 
 ### Where is the real source?
 
-Under **`netsweep/`**. Root `*.py` files are shims.
+Under **`netsweep/`**. The only root launcher is **`run.py`**.
 
 ### Tests patch old modules?
 

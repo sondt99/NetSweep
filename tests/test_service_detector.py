@@ -200,9 +200,9 @@ class TestExportToJson:
         # export_to_json resolves its output directory relative to this
         # module's own __file__; redirect that into tmp_path so the test
         # never touches the real repo tree.
-        import service_detector as sd_module
+        import netsweep.scan.service as sd_module
 
-        monkeypatch.setattr(sd_module, "__file__", str(tmp_path / "service_detector.py"))
+        monkeypatch.setattr(sd_module, "__file__", str(tmp_path / "service.py"))
 
         results = [
             {"port": 22, "service": "ssh", "version": "OpenSSH_8.9", "banner": "SSH-2.0-OpenSSH_8.9", "ssl_cert": None},

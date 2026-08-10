@@ -1,12 +1,12 @@
 # Architecture
 
-## Goals (v5.1)
+## Goals (v5.1+)
 
 - Single installable package namespace: `netsweep`
 - Clear layers with one-way dependencies
 - CLI thin; scanners reusable as libraries
 - Menu orchestration **in-process**
-- Backward-compatible root shims for scripts and older imports
+- Clean repository root: one launcher (`run.py`) + the `netsweep/` package
 
 ## Package map
 
@@ -94,22 +94,25 @@ User code → netsweep.scan.* / netsweep.config
          (no menu required)
 ```
 
-## Shims (compatibility)
+## Repository root (clean)
 
-Root files re-export implementation modules so old paths work:
+| Path | Role |
+|------|------|
+| `run.py` | Thin launcher → `netsweep.cli.menu.main` |
+| `netsweep/` | **All** application source |
+| `tests/` | pytest suite |
+| `docs/` | Documentation |
+| `config/` | Optional data files only (e.g. `known_devices.json`) |
 
-| Shim | Implementation |
-|------|----------------|
-| `main.py` | `netsweep.cli.menu` |
-| `lan_scanner.py` | `netsweep.cli.lan` |
-| `host_scanner.py` | `netsweep.cli.host` |
-| `port_scanner.py` | `netsweep.scan.ports` |
-| `service_detector.py` | `netsweep.scan.service` |
-| `config.py` | `netsweep.config` |
-| `scanner/*` | `netsweep.scan.*` |
-| `utils/*` | `netsweep.net` / `logging` / `data` |
+**How to start the app:**
 
-New code should import **`netsweep.*` only**. Shims may be removed in a future major version (6.0).
+```bash
+python run.py
+python -m netsweep
+netsweep                 # after pip install -e .
+```
+
+Import **only** `netsweep.*` in new code.
 
 ## Design notes
 

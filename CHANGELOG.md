@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   architecture, scanning, security, performance, testing, experimental tools, FAQ,
   contributing
 
+### Cleanup
+
+- Removed root compatibility shims (`main.py`, `lan_scanner.py`, `host_scanner.py`, …)
+- Single repo entrypoint: **`run.py`** → `netsweep.cli.menu`
+
 ## [5.0.0] - 2026-08-11
 
 Hardening release from a multi-agent architecture, correctness, QA, and

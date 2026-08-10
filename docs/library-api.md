@@ -181,15 +181,13 @@ assert __version__ == "5.1.0"  # or current
 - `DeviceInfo` caches (MAC/vendor) are lock-protected.  
 - Connection budget is process-wide.  
 
-## Deprecated import paths
+## Import rule
 
-These still work via shims but should not be used in new code:
+Always use the package namespace:
 
 ```python
-import host_scanner
-from scanner.network_scanner import NetworkScanner
-from service_detector import ServiceDetector
-import config
+from netsweep.scan.network import NetworkScanner
+from netsweep.config import get_config
 ```
 
-Prefer `netsweep.*` imports.
+Do not use removed root modules (`main.py`, `host_scanner.py`, etc.).

@@ -66,3 +66,6 @@
 2025-11-27 04:39:15 - NetSweep - INFO - Configuration loaded successfully
 2025-11-27 04:39:17 - NetSweep - INFO - User selected Host Scanner
 2025-11-27 04:39:22 - NetSweep - INFO - Executing host scanner: /usr/bin/python3 host_scanner.py -t 14.248.82.248 -p 1-10000
+2026-08-11 00:45:14 - NetSweep - INFO - NetSweep - Professional Network Scanner
+2026-08-11 00:45:14 - NetSweep - INFO - Configuration loaded successfully
+2026-08-11 00:45:14 - NetSweep - INFO - User requested exit

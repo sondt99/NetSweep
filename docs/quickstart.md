@@ -15,7 +15,8 @@ See [installation.md](installation.md).
 ## 2. Interactive menu
 
 ```bash
-python -m netsweep
+python run.py
+# or: python -m netsweep
 ```
 
 Menu options:

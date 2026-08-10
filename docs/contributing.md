@@ -20,7 +20,7 @@ pytest tests/ -q
 
 ## Code guidelines
 
-- Put new logic under **`netsweep/`**, not root shims.  
+- Put new logic under **`netsweep/`** only (`run.py` stays a thin launcher).  
 - Respect layering: `cli` → `scan` → `net`/`config`/`policy`/`data`.  
 - Prefer type hints and small, testable functions.  
 - Do not reintroduce shell=True for user-controlled data.  
@@ -41,7 +41,7 @@ Use the PR template checklist:
 
 - Patch: bugfixes  
 - Minor (e.g. 5.1 → 5.2): features, non-breaking package changes  
-- Major (6.0): remove shims, breaking API  
+- Major (6.0): public API freezes / remotions as needed  
 
 ## Security reports
 

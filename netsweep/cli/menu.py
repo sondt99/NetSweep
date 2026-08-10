@@ -11,9 +11,7 @@ except ImportError:
 
 InputFunc = Callable[[str], str]
 
-# Resolve scanner scripts relative to this file rather than the process's cwd, so
-# the menu still works when main.py is launched from outside the repo directory
-# (e.g. `python3 /path/to/NetSweep/main.py`) instead of `cd NetSweep && python main.py`.
+# Package directory (for diagnostics / legacy SCRIPT_DIR checks in tests).
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -190,9 +188,8 @@ def main():
                 log_info("User selected LAN Scanner")
                 try:
                     args = build_args_common()
-                    cmd = [sys.executable, os.path.join(SCRIPT_DIR, "lan_scanner.py")] + args
-                    print(f"Running: {' '.join(cmd)}")
-                    execute_scanner("lan", cmd)
+                    print(f"Running: netsweep-lan {' '.join(args)}")
+                    execute_scanner("lan", args)
                 except Exception as e:
                     handler.handle_error(e, "LAN Scanner execution")
                     print(f"Error running LAN scanner. Check logs for details.")
@@ -208,9 +205,7 @@ def main():
                     ports_input = input(f"Enter port range (default {config.network.default_ports}): ").strip()
                     ports = ports_input or config.network.default_ports
 
-                    cmd = [
-                        sys.executable,
-                        os.path.join(SCRIPT_DIR, "host_scanner.py"),
+                    args = [
                         "-t", target,
                         "-p", ports,
                         "--timeout", str(config.scan.timeout),
@@ -219,14 +214,14 @@ def main():
 
                     # Add optional features
                     if input("Enable verbose output? (y/n): ").lower() == "y":
-                        cmd.append("-v")
+                        args.append("-v")
                     if input("Enable OS detection? (y/n): ").lower() == "y":
-                        cmd.append("--os-detection")
+                        args.append("--os-detection")
                     if input("Enable Service detection? (y/n): ").lower() == "y":
-                        cmd.append("--service-detection")
+                        args.append("--service-detection")
 
-                    print(f"Running: {' '.join(cmd)}")
-                    execute_scanner("host", cmd)
+                    print(f"Running: netsweep-host {' '.join(args)}")
+                    execute_scanner("host", args)
                 except Exception as e:
                     handler.handle_error(e, "Host Scanner execution")
                     print(f"Error running host scanner. Check logs for details.")

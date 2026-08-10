@@ -71,12 +71,12 @@ sudo ./netscan.sh 192.168.1.0/24
 
 ---
 
-## Root compatibility shims
-
-Files like `main.py` and `lan_scanner.py` are thin wrappers for older docs and scripts. Prefer:
+## Preferred entrypoints
 
 ```bash
+python run.py
 python -m netsweep
 netsweep-lan
 netsweep-host
+netsweep-sadp
 ```

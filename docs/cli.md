@@ -126,22 +126,13 @@ python -m netsweep.cli.config_cmd --validate
 python -m netsweep.cli.config_cmd --create-config /tmp/netsweep-demo.json
 ```
 
-Or: `python config.py --show-config` (shim).
-
 ---
 
-## Legacy entrypoints
-
-Still supported via shims:
+## Repo launcher
 
 ```bash
-python main.py
-python lan_scanner.py -n 192.168.1.0/24
-python host_scanner.py -t 127.0.0.1 -p 1-100
-python hikvision_sadp.py --timeout 3
+python run.py                 # same as interactive menu
 ```
-
-Prefer package entrypoints for new scripts.
 
 ---
 

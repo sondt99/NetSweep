@@ -40,9 +40,10 @@ cd NetSweep
 python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 
-# Interactive menu
+# Interactive menu (any of these)
+python run.py
 python -m netsweep
-# or: netsweep
+netsweep
 
 # LAN scan (example)
 netsweep-lan -n 192.168.1.0/24 -o json -d scan_results
@@ -53,8 +54,6 @@ netsweep-host -t 192.168.1.10 -p 1-1000 --service-detection -v
 # Tests
 pytest tests/ -q
 ```
-
-Legacy shims still work: `python main.py`, `python lan_scanner.py`, `python host_scanner.py`.
 
 ---
 
@@ -85,7 +84,8 @@ Legacy shims still work: `python main.py`, `python lan_scanner.py`, `python host
 
 ```text
 NetSweep/
-├── netsweep/                 # Installable package (source of truth)
+├── run.py                    # Single repo launcher → netsweep.cli.menu
+├── netsweep/                 # All application source (installable package)
 │   ├── cli/                  # menu, lan, host, sadp, config_cmd
 │   ├── scan/                 # NetworkScanner, DeviceInfo, PortScanner, ServiceDetector
 │   ├── config/               # dataclasses + ConfigManager
@@ -98,7 +98,7 @@ NetSweep/
 │   └── __version__.py
 ├── docs/                     # User & developer documentation
 ├── tests/                    # pytest suite
-├── main.py, lan_scanner.py…  # Thin backward-compatible shims
+├── config/                   # Optional data (e.g. known_devices.json) — not Python code
 ├── pyproject.toml
 ├── requirements.txt
 ├── CHANGELOG.md
